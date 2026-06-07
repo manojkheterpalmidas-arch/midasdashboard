@@ -38,7 +38,6 @@ const TEMPERATURES = ["High", "Medium", "Low"];
 const STATUSES = ["Open", "Closed", "Lost", "Long-Term"];
 const GOAL_TYPES = ["Responsibility Goal", "Challenge Goal"];
 const CURRENCIES = ["GBP", "EUR", "PLN", "USD"];
-const ROLE_TYPES = ["Manager", "Team Member"];
 const CHART_COLORS = ["#16825d", "#1d4f8f", "#d18b16", "#c24136", "#6d5bd0"];
 const RADIAN = Math.PI / 180;
 const TABS = ["Dashboard", "Teams", "Deals", "Monthly Goals", "Team View", "Summary"];
@@ -2270,140 +2269,7 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
   );
 }
 
-function AccessControlPanel({ data, refreshData, currentUserEmail }) {
-  const [editing, setEditing] = useState(null);
-  const blankRole = { email: "", role: "Team Member", teamId: data.teams[0]?.id || "", repName: data.teams[0]?.reps?.[0] || "" };
-  const form = editing || blankRole;
-  const selectedTeam = getTeam(data.teams, form.teamId);
-
-  function update(field, value) {
-    setEditing((current) => {
-      const next = { ...(current || blankRole), [field]: value };
-      if (field === "teamId") next.repName = getTeam(data.teams, value)?.reps?.[0] || "";
-      if (field === "role" && value === "Manager") {
-        next.teamId = "";
-        next.repName = "";
-      }
-      return next;
-    });
-  }
-
-  async function saveRole(event) {
-    event.preventDefault();
-    const role = { ...form, id: form.id || createId("role"), email: normalizeEmail(form.email) };
-    if (!role.email) {
-      alert("Enter the user's Gmail address.");
-      return;
-    }
-    if (role.role !== "Manager" && !role.teamId) {
-      alert("Select a team for this role.");
-      return;
-    }
-    if (role.role === "Team Member" && !role.repName) {
-      alert("Select a rep for this team member.");
-      return;
-    }
-    if (data.roles.some((item) => item.id === role.id)) await api.updateRole(role.id, role);
-    else await api.createRole(role);
-    await refreshData();
-    setEditing(null);
-  }
-
-  async function deleteRole(roleId) {
-    if (!confirm("Remove this access rule?")) return;
-    await api.deleteRole(roleId);
-    await refreshData();
-  }
-
-  return (
-    <div className="panel p-4">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Access Control</h3>
-          <p className="mt-1 text-sm text-slate-500">Assign app-level access by Gmail address. Keep the Google Sheet itself shared carefully.</p>
-        </div>
-        <div className="rounded-md bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">You: {currentUserEmail || "Unknown email"}</div>
-      </div>
-      {!data.roles.length ? (
-        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
-          No access rules exist yet, so signed-in users are treated as Manager for setup. Add your own email as Manager first, then add team access rules.
-        </div>
-      ) : null}
-      <form onSubmit={saveRole} className="mb-5 grid gap-3 md:grid-cols-5">
-        <div>
-          <label className="label">Gmail email</label>
-          <input className="field" value={form.email || ""} onChange={(e) => update("email", e.target.value)} placeholder="name@gmail.com" />
-        </div>
-        <div>
-          <label className="label">Role</label>
-          <select className="field" value={form.role || "Team Member"} onChange={(e) => update("role", e.target.value)}>
-            {ROLE_TYPES.map((role) => (
-              <option key={role}>{role}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label">Team</label>
-          <select className="field" value={form.teamId || ""} onChange={(e) => update("teamId", e.target.value)} disabled={form.role === "Manager"}>
-            <option value="">All teams</option>
-            {data.teams.map((team) => (
-              <option key={team.id} value={team.id}>
-                {team.teamName}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label">Rep</label>
-          <select className="field" value={form.repName || ""} onChange={(e) => update("repName", e.target.value)} disabled={form.role !== "Team Member"}>
-            <option value="">All reps</option>
-            {(selectedTeam?.reps || []).map((rep) => (
-              <option key={rep}>{rep}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex items-end gap-2">
-          <button className="btn-primary w-full" type="submit">
-            {form.id ? "Save access" : "Add access"}
-          </button>
-          {form.id ? (
-            <button className="btn-secondary" type="button" onClick={() => setEditing(null)}>
-              Clear
-            </button>
-          ) : null}
-        </div>
-      </form>
-      <DataTable
-        rows={data.roles}
-        empty="No access rules yet."
-        columns={[
-          { header: "Email", render: (row) => row.email },
-          { header: "Role", render: (row) => <Badge tone={row.role === "Manager" ? "green" : "amber"}>{row.role === "Team Lead" ? "Team Member" : row.role}</Badge> },
-          { header: "Team", render: (row) => getTeam(data.teams, row.teamId)?.teamName || "All teams" },
-          { header: "Rep", render: (row) => row.repName || "All reps" },
-          {
-            header: "Edit",
-            render: (row) => (
-              <button className="btn-secondary" onClick={() => setEditing(row)}>
-                Edit
-              </button>
-            )
-          },
-          {
-            header: "Delete",
-            render: (row) => (
-              <button className="btn-danger" onClick={() => deleteRole(row.id)}>
-                Delete
-              </button>
-            )
-          }
-        ]}
-      />
-    </div>
-  );
-}
-
-function TeamsPage({ data, refreshData, currentUserEmail }) {
+function TeamsPage({ data, refreshData }) {
   const [editing, setEditing] = useState(null);
 
   async function saveTeam(team) {
@@ -2464,7 +2330,6 @@ function TeamsPage({ data, refreshData, currentUserEmail }) {
           <TeamForm initialTeam={editing.id ? editing : null} onSave={saveTeam} onCancel={() => setEditing(null)} />
         </Modal>
       ) : null}
-      <AccessControlPanel data={data} refreshData={refreshData} currentUserEmail={currentUserEmail} />
     </div>
   );
 }
@@ -3732,7 +3597,7 @@ export default function App() {
         selectedHalfYear={selectedHalfYear}
       />
     ),
-    Teams: <TeamsPage data={data} refreshData={refreshData} currentUserEmail={currentUserEmail} />,
+    Teams: <TeamsPage data={data} refreshData={refreshData} />,
     Deals: <DealsPage data={scopedData} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} access={access} />,
     "Monthly Goals": <GoalsPage data={data} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} />,
     "Team View": (

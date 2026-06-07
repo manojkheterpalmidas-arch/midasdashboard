@@ -315,19 +315,35 @@ export function normalizeRole(row) {
 
 export async function readAllData() {
   await ensureSheets();
-  await refreshUserEmail();
-  const [teams, deals, goals, roles, settings] = await Promise.all([
+  const email = await refreshUserEmail();
+  const [teams, deals, goals, rawRoles, settings] = await Promise.all([
     readSheet("Teams"),
     readSheet("Deals"),
     readSheet("MonthlyGoals"),
     readSheet("UserRoles"),
     readSheet("Settings")
   ]);
+  let roles = rawRoles.map(normalizeRole);
+  if (email && !roles.some((role) => role.email === email)) {
+    const timestamp = nowIso();
+    const newRole = {
+      id: createId("role"),
+      email,
+      role: "Manager",
+      teamId: "",
+      repName: "",
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    roles = [...roles, newRole];
+    await writeSheet("UserRoles", roles);
+    await audit("User auto-added as Manager", "UserRoles", newRole.id, { email });
+  }
   return {
     teams: teams.map(normalizeTeam),
     deals: deals.map(normalizeDeal),
     goals: goals.map(normalizeGoal),
-    roles: roles.map(normalizeRole),
+    roles,
     settings: Object.fromEntries(settings.map((row) => [row.key, row.value]))
   };
 }
