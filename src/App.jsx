@@ -576,6 +576,7 @@ function matchesScope(item, scope) {
   if (scope.year && num(item.year) !== num(scope.year)) return false;
   if (scope.months?.length && !scope.months.map(num).includes(num(item.month))) return false;
   if (scope.month && num(item.month) !== num(scope.month)) return false;
+  if (Array.isArray(scope.teamIds) && !scope.teamIds.includes(item.teamId)) return false;
   if (scope.teamId && item.teamId !== scope.teamId) return false;
   if (scope.repName && scope.repName !== "All reps" && item.repName !== scope.repName) return false;
   if (scope.category && item.category !== scope.category) return false;
@@ -2341,9 +2342,13 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
   const [halfYear, setHalfYear] = useState(selectedHalfYear);
   const [goalType, setGoalType] = useState("Responsibility Goal");
   const [currencyView, setCurrencyView] = useState("KRW");
+  const [selectedTeamIds, setSelectedTeamIds] = useState(null);
   const useKrw = currencyView === "KRW";
   const summaryCurrency = useKrw ? "KRW" : "GBP";
-  const baseScope = periodScope({ year, periodType, month, quarter, halfYear });
+  const allTeamIds = data.teams.map((team) => team.id);
+  const activeTeamIds = selectedTeamIds ?? allTeamIds;
+  const selectedTeams = data.teams.filter((team) => activeTeamIds.includes(team.id));
+  const baseScope = periodScope({ year, periodType, month, quarter, halfYear, teamIds: activeTeamIds });
   const label = periodLabel({ year, periodType, month, quarter, halfYear });
   const metrics = calculateMetrics({
     teams: data.teams,
@@ -2354,7 +2359,14 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
     scope: baseScope
   });
 
-  const teamRows = data.teams.map((team) => {
+  function toggleTeam(teamId) {
+    setSelectedTeamIds((current) => {
+      const currentIds = current ?? allTeamIds;
+      return currentIds.includes(teamId) ? currentIds.filter((id) => id !== teamId) : [...currentIds, teamId];
+    });
+  }
+
+  const teamRows = selectedTeams.map((team) => {
     const itemMetrics = calculateMetrics({
       teams: data.teams,
       deals: data.deals,
@@ -2412,7 +2424,9 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
     <div className="space-y-5">
       <div>
         <h2 className="section-title">Summary</h2>
-        <p className="text-sm text-slate-500">Combined manager view for {label}. KRW is recommended for cross-team totals.</p>
+        <p className="text-sm text-slate-500">
+          Combined manager view for {label}, covering {selectedTeams.length || 0} of {data.teams.length} teams. KRW is recommended for cross-team totals.
+        </p>
       </div>
       <div className="panel p-4">
         <div className="grid gap-3 md:grid-cols-6">
@@ -2477,6 +2491,28 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
               <option>Local</option>
             </select>
           </div>
+        </div>
+        <div className="mt-4 border-t border-midas-line pt-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <label className="label mb-0">Included teams</label>
+            <div className="flex flex-wrap gap-2">
+              <button className="btn-secondary py-1.5 text-sm" onClick={() => setSelectedTeamIds(allTeamIds)}>
+                Select all
+              </button>
+              <button className="btn-secondary py-1.5 text-sm" onClick={() => setSelectedTeamIds([])}>
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {data.teams.map((team) => (
+              <label key={team.id} className="flex items-center gap-2 rounded-md border border-midas-line bg-slate-50 px-3 py-2 text-sm font-semibold text-midas-ink">
+                <input type="checkbox" checked={activeTeamIds.includes(team.id)} onChange={() => toggleTeam(team.id)} />
+                <span>{team.teamName}</span>
+              </label>
+            ))}
+          </div>
+          {!activeTeamIds.length ? <div className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">No teams selected. Summary totals will show zero until at least one team is selected.</div> : null}
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
