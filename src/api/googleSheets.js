@@ -110,7 +110,7 @@ function waitForGoogle() {
       }
       if (Date.now() - started > 10000) {
         clearInterval(timer);
-        reject(new Error("Google Identity Services did not load. Disable blockers for accounts.google.com and confirm http://localhost:5173 is an authorized JavaScript origin for this OAuth client."));
+        reject(new Error(`Google Identity Services did not load. Disable blockers for accounts.google.com and confirm ${window.location.origin} is an authorized JavaScript origin for this OAuth client.`));
       }
     }, 100);
   });
@@ -121,7 +121,7 @@ export async function signIn() {
   await waitForGoogle();
   return new Promise((resolve, reject) => {
     const timeout = window.setTimeout(() => {
-      reject(new Error("Google sign-in did not finish. Allow popups for localhost:5173, then try again."));
+      reject(new Error(`Google sign-in did not finish. Allow popups for ${window.location.origin}, then try again.`));
     }, 60000);
     tokenClient =
       window.google.accounts.oauth2.initTokenClient({

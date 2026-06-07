@@ -831,12 +831,13 @@ function PasswordGate({ onLogin }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [hint, setHint] = useState("");
+  const currentOrigin = typeof window !== "undefined" ? window.location.origin : "this site";
 
   async function submit(event) {
     event.preventDefault();
     setLoading(true);
     setError("");
-    setHint("Complete sign-in in the Google window. If you do not see it, allow popups for localhost:5173.");
+    setHint(`Complete sign-in in the Google window. If you do not see it, allow popups for ${currentOrigin}.`);
     try {
       await api.login();
       sessionStorage.setItem("midas-google-session", "true");
