@@ -847,14 +847,6 @@ function PasswordGate({ onLogin }) {
     }
   }
 
-  function useRedirect() {
-    try {
-      api.redirectLogin();
-    } catch (redirectError) {
-      setError(redirectError.message || "Redirect sign-in failed.");
-    }
-  }
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
       <form onSubmit={submit} className="panel w-full max-w-md p-6">
@@ -864,9 +856,6 @@ function PasswordGate({ onLogin }) {
         {hint ? <div className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">{hint}</div> : null}
         <button className="btn-primary mt-5 w-full" disabled={loading}>
           {loading ? "Waiting for Google..." : "Sign in with Google"}
-        </button>
-        <button type="button" className="btn-secondary mt-2 w-full" onClick={useRedirect}>
-          Sign in with redirect
         </button>
         {loading ? (
           <button
