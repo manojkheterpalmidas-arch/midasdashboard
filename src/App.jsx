@@ -2941,21 +2941,34 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
         />
       </div>
       {periodType !== "Monthly" ? (
-        <ChartPanel title={`Sales by Month - ${label}`} tall>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={monthlySalesChart} margin={{ top: 12, right: 24, left: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis tickFormatter={(value) => chartAxisTick(value, currency)} />
-              <Tooltip formatter={(value) => formatChartMoney(value, currency)} />
-              <Legend />
-              <Line type="linear" dataKey="Sales" name="Monthly Sales" stroke="#1d4f8f" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-              <Line type="linear" dataKey="Goal" name="Monthly Goal" stroke="#d18b16" strokeWidth={2.5} strokeDasharray="6 5" dot={false} />
-              <Line type="linear" dataKey="Cumulative" name="Cumulative Sales" stroke="#16825d" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-              <Line type="linear" dataKey="Cumulative Goal" stroke="#c24136" strokeWidth={2.5} strokeDasharray="6 5" dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartPanel>
+        <div className="grid gap-4 xl:grid-cols-2">
+          <ChartPanel title={`Monthly Sales vs Goal - ${label}`} tall>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={monthlySalesChart} margin={{ top: 12, right: 24, left: 8, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis tickFormatter={(value) => chartAxisTick(value, currency)} />
+                <Tooltip formatter={(value) => formatChartMoney(value, currency)} />
+                <Legend />
+                <Line type="linear" dataKey="Sales" name="Monthly Sales" stroke="#1d4f8f" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                <Line type="linear" dataKey="Goal" name="Monthly Goal" stroke="#d18b16" strokeWidth={2.5} strokeDasharray="6 5" dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartPanel>
+          <ChartPanel title={`Cumulative Sales vs Goal - ${label}`} tall>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={monthlySalesChart} margin={{ top: 12, right: 24, left: 8, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis tickFormatter={(value) => chartAxisTick(value, currency)} />
+                <Tooltip formatter={(value) => formatChartMoney(value, currency)} />
+                <Legend />
+                <Line type="linear" dataKey="Cumulative" name="Cumulative Sales" stroke="#16825d" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                <Line type="linear" dataKey="Cumulative Goal" stroke="#c24136" strokeWidth={2.5} strokeDasharray="6 5" dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartPanel>
+        </div>
       ) : null}
       <div className="grid gap-4 xl:grid-cols-3">
         <ChartPanel title="Achievement + Max Forecast vs Target">
