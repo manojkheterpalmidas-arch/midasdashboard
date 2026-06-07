@@ -2791,9 +2791,15 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
         return {
           month: monthName(scopeMonth).slice(0, 3),
           Sales: monthMetrics.closed,
+          Goal: monthMetrics.target,
           Cumulative: runningSales
         };
       });
+  let runningGoal = 0;
+  monthlySalesChart.forEach((row) => {
+    runningGoal += row.Goal;
+    row["Cumulative Goal"] = runningGoal;
+  });
 
   return (
     <div className="space-y-5">
@@ -2943,8 +2949,10 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
               <YAxis tickFormatter={(value) => chartAxisTick(value, currency)} />
               <Tooltip formatter={(value) => formatChartMoney(value, currency)} />
               <Legend />
-              <Line type="monotone" dataKey="Sales" stroke="#1d4f8f" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-              <Line type="monotone" dataKey="Cumulative" stroke="#16825d" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+              <Line type="linear" dataKey="Sales" name="Monthly Sales" stroke="#1d4f8f" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+              <Line type="linear" dataKey="Goal" name="Monthly Goal" stroke="#d18b16" strokeWidth={2.5} strokeDasharray="6 5" dot={false} />
+              <Line type="linear" dataKey="Cumulative" name="Cumulative Sales" stroke="#16825d" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+              <Line type="linear" dataKey="Cumulative Goal" stroke="#c24136" strokeWidth={2.5} strokeDasharray="6 5" dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </ChartPanel>
