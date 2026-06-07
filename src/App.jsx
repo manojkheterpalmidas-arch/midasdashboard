@@ -672,9 +672,8 @@ function Header({
 
   return (
     <header className="border-b border-midas-line bg-slate-50 px-4 py-4 lg:px-6">
-      <div className="grid gap-4">
-        <div className="panel overflow-hidden border-l-4 border-l-midas-navy p-5">
-          <div className="grid gap-5 xl:grid-cols-[minmax(420px,0.95fr)_minmax(620px,1.05fr)] xl:items-start">
+      <div className="grid gap-4 xl:grid-cols-[minmax(360px,0.95fr)_minmax(280px,0.62fr)_minmax(430px,1.05fr)]">
+        <div className="panel flex min-h-44 flex-col justify-between overflow-hidden border-l-4 border-l-midas-navy p-5">
           <div>
             <div className="mb-2 inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-midas-blue">
               MIDAS Internal
@@ -684,38 +683,9 @@ function Header({
               Last updated {lastUpdated ? new Date(lastUpdated).toLocaleString() : "Not saved yet"}
             </p>
           </div>
-
-          <div className="rounded-lg border border-midas-line bg-slate-50 p-3">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
-              <h2 className="text-sm font-extrabold uppercase tracking-wide text-slate-600">Data Exchange</h2>
-              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-500 shadow-sm">Excel + Backup</span>
-            </div>
-            <div className="grid gap-2 md:grid-cols-2">
-              {[
-                ["Teams CSV", () => onExportCsv("teams"), () => teamsCsvRef.current?.click()],
-                ["Deals CSV", () => onExportCsv("deals"), () => dealsCsvRef.current?.click()],
-                ["Monthly Goals CSV", () => onExportCsv("goals"), () => goalsCsvRef.current?.click()],
-                ["Full Backup JSON", onExportJson, () => jsonRef.current?.click()]
-              ].map(([label, exportAction, importAction]) => (
-                <div key={label} className="rounded-md border border-midas-line bg-slate-50 p-2">
-                  <div className="mb-2 px-1 text-xs font-bold uppercase tracking-wide text-slate-500">{label}</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button className="btn-secondary py-1.5" onClick={exportAction}>
-                      Export
-                    </button>
-                    <button className="btn-secondary py-1.5" onClick={importAction}>
-                      Import
-                    </button>
-                  </div>
-                </div>
-              ))}
-              <input ref={teamsCsvRef} className="hidden" type="file" accept=".csv,text/csv" onChange={(event) => onImportCsv("teams", event)} />
-              <input ref={dealsCsvRef} className="hidden" type="file" accept=".csv,text/csv" onChange={(event) => onImportCsv("deals", event)} />
-              <input ref={goalsCsvRef} className="hidden" type="file" accept=".csv,text/csv" onChange={(event) => onImportCsv("goals", event)} />
-              <input ref={jsonRef} className="hidden" type="file" accept="application/json,.json" onChange={onImportJson} />
-            </div>
-          </div>
-          </div>
+          <button className="btn-danger mt-5 w-full sm:w-72" onClick={onBackup}>
+            Download JSON Backup
+          </button>
         </div>
 
         <div className="panel p-4">
@@ -723,7 +693,7 @@ function Header({
             <h2 className="text-sm font-extrabold uppercase tracking-wide text-slate-500">Forecast Scope</h2>
             <span className="rounded-full bg-green-50 px-2.5 py-1 text-xs font-bold text-green-700">Live Sheets</span>
           </div>
-          <div className="grid gap-3 lg:grid-cols-[180px_220px_minmax(260px,1fr)]">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
             <div>
               <label className="label">Year</label>
               <select className="field" value={selectedYear} onChange={(e) => setSelectedYear(num(e.target.value))}>
@@ -742,10 +712,41 @@ function Header({
                 ))}
               </select>
             </div>
-            <div>
+            <div className="sm:col-span-2">
               <label className="label">Prepared by</label>
               <input className="field" value={preparedBy} onChange={(e) => setPreparedBy(e.target.value)} />
             </div>
+          </div>
+        </div>
+
+        <div className="panel p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-extrabold uppercase tracking-wide text-slate-500">Data Exchange</h2>
+            <span className="text-xs font-semibold text-slate-500">Excel + Backup</span>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {[
+              ["Teams CSV", () => onExportCsv("teams"), () => teamsCsvRef.current?.click()],
+              ["Deals CSV", () => onExportCsv("deals"), () => dealsCsvRef.current?.click()],
+              ["Monthly Goals CSV", () => onExportCsv("goals"), () => goalsCsvRef.current?.click()],
+              ["Full Backup JSON", onExportJson, () => jsonRef.current?.click()]
+            ].map(([label, exportAction, importAction]) => (
+              <div key={label} className="rounded-md border border-midas-line bg-slate-50 p-2">
+                <div className="mb-2 px-1 text-xs font-bold uppercase tracking-wide text-slate-500">{label}</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button className="btn-secondary py-1.5" onClick={exportAction}>
+                    Export
+                  </button>
+                  <button className="btn-secondary py-1.5" onClick={importAction}>
+                    Import
+                  </button>
+                </div>
+              </div>
+            ))}
+            <input ref={teamsCsvRef} className="hidden" type="file" accept=".csv,text/csv" onChange={(event) => onImportCsv("teams", event)} />
+            <input ref={dealsCsvRef} className="hidden" type="file" accept=".csv,text/csv" onChange={(event) => onImportCsv("deals", event)} />
+            <input ref={goalsCsvRef} className="hidden" type="file" accept=".csv,text/csv" onChange={(event) => onImportCsv("goals", event)} />
+            <input ref={jsonRef} className="hidden" type="file" accept="application/json,.json" onChange={onImportJson} />
           </div>
         </div>
       </div>
