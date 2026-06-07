@@ -672,13 +672,13 @@ function Header({
 
   return (
     <header className="border-b border-midas-line bg-slate-50 px-4 py-4 lg:px-6">
-      <div className="grid gap-4 xl:grid-cols-[minmax(360px,0.95fr)_minmax(280px,0.62fr)_minmax(430px,1.05fr)]">
-        <div className="panel flex min-h-44 flex-col justify-between overflow-hidden border-l-4 border-l-midas-navy p-5">
+      <div className="grid gap-3 lg:grid-cols-[minmax(300px,0.95fr)_minmax(250px,0.62fr)_minmax(360px,1.08fr)] xl:gap-4">
+        <div className="panel flex min-h-44 flex-col justify-between overflow-hidden border-l-4 border-l-midas-navy p-4 xl:p-5">
           <div>
             <div className="mb-2 inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-midas-blue">
               MIDAS Internal
             </div>
-            <h1 className="text-3xl font-extrabold text-midas-ink">MIDAS IT Europe Sales Forecast</h1>
+            <h1 className="text-2xl font-extrabold text-midas-ink 2xl:text-3xl">MIDAS IT Europe Sales Forecast</h1>
             <p className="mt-2 text-sm font-medium text-slate-500">
               Last updated {lastUpdated ? new Date(lastUpdated).toLocaleString() : "Not saved yet"}
             </p>
