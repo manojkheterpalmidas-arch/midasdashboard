@@ -2689,9 +2689,12 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
   );
 }
 
-function ForecastTable({ title, deals, team, currency }) {
+function ForecastTable({ title, deals, team, currency, useKrw }) {
   const totalMin = deals.reduce((sum, deal) => sum + num(deal.minAmount), 0);
   const totalMax = deals.reduce((sum, deal) => sum + num(deal.maxAmount), 0);
+  const displayAmount = (value) => (useKrw ? toKrw(value, team) : num(value));
+  const totalMinDisplay = displayAmount(totalMin);
+  const totalMaxDisplay = displayAmount(totalMax);
   return (
     <div className="panel">
       <div className="border-b border-midas-line px-4 py-3">
@@ -2703,8 +2706,8 @@ function ForecastTable({ title, deals, team, currency }) {
           { header: "Company", render: (row) => row.companyName },
           { header: "Product", render: (row) => row.product },
           { header: "Rep", render: (row) => row.repName },
-          { header: "Min Amount", render: (row) => formatMoney(row.minAmount, currency) },
-          { header: "Max Amount", render: (row) => formatMoney(row.maxAmount, currency) },
+          { header: useKrw ? "Min KRW" : "Min Amount", render: (row) => formatMoney(displayAmount(row.minAmount), currency) },
+          { header: useKrw ? "Max KRW" : "Max Amount", render: (row) => formatMoney(displayAmount(row.maxAmount), currency) },
           { header: "Probability", render: (row) => `${row.probability}%` },
           { header: "Temperature", render: (row) => <Badge tone={temperatureTone(row.temperature)}>{row.temperature}</Badge> },
           { header: "Comments", render: (row) => row.comments },
@@ -2712,10 +2715,10 @@ function ForecastTable({ title, deals, team, currency }) {
         ]}
       />
       <div className="grid gap-3 border-t border-midas-line bg-slate-50 p-4 text-sm font-bold md:grid-cols-4">
-        <div>Total Min: {formatMoney(totalMin, currency)}</div>
-        <div>Total Max: {formatMoney(totalMax, currency)}</div>
-        <div>Total Min KRW: {formatMoney(toKrw(totalMin, team), "KRW")}</div>
-        <div>Total Max KRW: {formatMoney(toKrw(totalMax, team), "KRW")}</div>
+        <div>Total Min: {formatMoney(totalMinDisplay, currency)}</div>
+        <div>Total Max: {formatMoney(totalMaxDisplay, currency)}</div>
+        {!useKrw ? <div>Total Min KRW: {formatMoney(toKrw(totalMin, team), "KRW")}</div> : null}
+        {!useKrw ? <div>Total Max KRW: {formatMoney(toKrw(totalMax, team), "KRW")}</div> : null}
       </div>
     </div>
   );
@@ -2730,11 +2733,13 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
   const [halfYear, setHalfYear] = useStoredState("midas-team-view-half-year", selectedHalfYear);
   const [goalType, setGoalType] = useStoredState("midas-team-view-goal-type", "Responsibility Goal");
   const [repName, setRepName] = useStoredState("midas-team-view-rep", "All reps");
+  const [currencyView, setCurrencyView] = useStoredState("midas-team-view-currency-view", "Local");
   const team = getTeam(data.teams, teamId) || data.teams[0];
-  const currency = team?.currency || "GBP";
+  const useKrw = currencyView === "KRW";
+  const currency = useKrw ? "KRW" : team?.currency || "GBP";
   const scope = periodScope({ year, periodType, month, quarter, halfYear, teamId: team?.id, repName });
   const label = periodLabel({ year, periodType, month, quarter, halfYear });
-  const metrics = calculateMetrics({ teams: data.teams, deals: data.deals, goals: data.goals, goalType, useKrw: false, scope });
+  const metrics = calculateMetrics({ teams: data.teams, deals: data.deals, goals: data.goals, goalType, useKrw, scope });
   const openDeals = data.deals.filter((deal) => deal.status === "Open" && matchesScope(deal, scope));
 
   const categoryRows = CATEGORIES.map((category) => {
@@ -2743,7 +2748,7 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
       deals: data.deals,
       goals: data.goals,
       goalType,
-      useKrw: false,
+      useKrw,
       scope: { ...scope, category }
     });
     return { id: category, category, ...categoryMetrics };
@@ -2772,7 +2777,7 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
     <div className="space-y-5">
       <div>
         <h2 className="section-title">Team View</h2>
-        <p className="text-sm text-slate-500">Team-level working view for {label}, shown in local currency.</p>
+        <p className="text-sm text-slate-500">Team-level working view for {label}, shown in {useKrw ? "KRW" : "local currency"}.</p>
       </div>
       <div className="panel p-4">
         <div className="grid gap-3 md:grid-cols-7">
@@ -2856,6 +2861,13 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
               ))}
             </select>
           </div>
+          <div>
+            <label className="label">Currency view</label>
+            <select className="field" value={currencyView} onChange={(e) => setCurrencyView(e.target.value)}>
+              <option>Local</option>
+              <option>KRW</option>
+            </select>
+          </div>
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
@@ -2875,6 +2887,7 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
           title={`${category} Deals`}
           team={team}
           currency={currency}
+          useKrw={useKrw}
           deals={openDeals.filter((deal) => deal.category === category)}
         />
       ))}
