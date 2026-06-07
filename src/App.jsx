@@ -507,6 +507,41 @@ function formatCompactMoney(value, currency = "KRW") {
     .replace(/([0-9])([a-z])$/i, (_, digit, suffix) => `${digit}${suffix.toUpperCase()}`);
 }
 
+function currencySymbol(currency = "KRW") {
+  return { KRW: "₩", GBP: "£", EUR: "€", PLN: "zł", USD: "$" }[currency] || `${currency} `;
+}
+
+function formatChartMoney(value, currency = "KRW") {
+  const amount = num(value);
+  if (currency === "KRW") {
+    return `KRW ${new Intl.NumberFormat("en-GB", { maximumFractionDigits: 1 }).format(amount / 1000000)}M`;
+  }
+  return formatMoney(amount, currency);
+}
+
+function chartAxisTick(value, currency = "KRW") {
+  const amount = num(value);
+  if (currency === "KRW") return `${Math.round(amount / 1000000)}M`;
+  return new Intl.NumberFormat("en-GB", { maximumFractionDigits: 0 }).format(amount);
+}
+
+function useStoredState(key, initialValue) {
+  const [value, setValue] = useState(() => {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored ? JSON.parse(stored) : initialValue;
+    } catch {
+      return initialValue;
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(value));
+  }, [key, value]);
+
+  return [value, setValue];
+}
+
 function makePieLabel(currency = "KRW") {
   return ({ cx, cy, midAngle, outerRadius, value, name, fill }) => {
     if (!value) return null;
@@ -521,7 +556,7 @@ function makePieLabel(currency = "KRW") {
           {name}
         </tspan>
         <tspan x={x} dy="1.25em">
-          {formatCompactMoney(value, currency)}
+          {formatChartMoney(value, currency)}
         </tspan>
       </text>
     );
@@ -1968,7 +2003,7 @@ function ChartPanel({ title, children, tall = false }) {
 }
 
 function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear }) {
-  const [goalType, setGoalType] = useState("Responsibility Goal");
+  const [goalType, setGoalType] = useStoredState("midas-dashboard-goal-type", "Responsibility Goal");
   const { teams, deals, goals } = data;
   const baseScope = periodScope({
     year: selectedYear,
@@ -2084,7 +2119,7 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis tickFormatter={(value) => `${Math.round(value / 1000000)}M`} />
-              <Tooltip formatter={(value) => formatMoney(value, "KRW")} />
+              <Tooltip formatter={(value) => formatChartMoney(value, "KRW")} />
               <Legend />
               <Bar dataKey="Target" fill="#0f2742" />
               <Bar dataKey="Achievement + Min" fill="#16825d" />
@@ -2109,7 +2144,7 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
                   <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(value) => formatMoney(value, "KRW")} />
+              <Tooltip formatter={(value) => formatChartMoney(value, "KRW")} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
@@ -2120,7 +2155,7 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="category" />
               <YAxis tickFormatter={(value) => `${Math.round(value / 1000000)}M`} />
-              <Tooltip formatter={(value) => formatMoney(value, "KRW")} />
+              <Tooltip formatter={(value) => formatChartMoney(value, "KRW")} />
               <Legend />
               <Bar dataKey="Min Forecast" stackId="a" fill="#16825d" />
               <Bar dataKey="Max Upside" stackId="a" fill="#d18b16" />
@@ -2687,14 +2722,14 @@ function ForecastTable({ title, deals, team, currency }) {
 }
 
 function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear }) {
-  const [teamId, setTeamId] = useState(data.teams[0]?.id || "");
-  const [year, setYear] = useState(selectedYear);
-  const [month, setMonth] = useState(selectedMonth);
-  const [periodType, setPeriodType] = useState(selectedPeriodType);
-  const [quarter, setQuarter] = useState(selectedQuarter);
-  const [halfYear, setHalfYear] = useState(selectedHalfYear);
-  const [goalType, setGoalType] = useState("Responsibility Goal");
-  const [repName, setRepName] = useState("All reps");
+  const [teamId, setTeamId] = useStoredState("midas-team-view-team-id", data.teams[0]?.id || "");
+  const [year, setYear] = useStoredState("midas-team-view-year", selectedYear);
+  const [month, setMonth] = useStoredState("midas-team-view-month", selectedMonth);
+  const [periodType, setPeriodType] = useStoredState("midas-team-view-period-type", selectedPeriodType);
+  const [quarter, setQuarter] = useStoredState("midas-team-view-quarter", selectedQuarter);
+  const [halfYear, setHalfYear] = useStoredState("midas-team-view-half-year", selectedHalfYear);
+  const [goalType, setGoalType] = useStoredState("midas-team-view-goal-type", "Responsibility Goal");
+  const [repName, setRepName] = useStoredState("midas-team-view-rep", "All reps");
   const team = getTeam(data.teams, teamId) || data.teams[0];
   const currency = team?.currency || "GBP";
   const scope = periodScope({ year, periodType, month, quarter, halfYear, teamId: team?.id, repName });
@@ -2740,7 +2775,7 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
         <p className="text-sm text-slate-500">Team-level working view for {label}, shown in local currency.</p>
       </div>
       <div className="panel p-4">
-        <div className="grid gap-3 md:grid-cols-6">
+        <div className="grid gap-3 md:grid-cols-7">
           <div>
             <label className="label">Team</label>
             <select
@@ -2868,12 +2903,12 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
         <ChartPanel title="Achievement + Max Forecast vs Target">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie data={coveragePie} dataKey="value" nameKey="name" outerRadius={90} label>
+              <Pie data={coveragePie} dataKey="value" nameKey="name" outerRadius={90} labelLine={false} label={makePieLabel(currency)}>
                 {coveragePie.map((entry, index) => (
                   <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(value) => formatMoney(value, currency)} />
+              <Tooltip formatter={(value) => formatChartMoney(value, currency)} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
@@ -2883,8 +2918,8 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
             <BarChart data={targetForecastChart}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="category" />
-              <YAxis />
-              <Tooltip formatter={(value) => formatMoney(value, currency)} />
+              <YAxis tickFormatter={(value) => chartAxisTick(value, currency)} />
+              <Tooltip formatter={(value) => formatChartMoney(value, currency)} />
               <Legend />
               <Bar dataKey="Target" fill="#0f2742" />
               <Bar dataKey="Achievement + Max" fill="#16825d" />
@@ -2894,12 +2929,12 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
         <ChartPanel title="Forecast Split">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie data={splitPie} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} label>
+              <Pie data={splitPie} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} labelLine={false} label={makePieLabel(currency)}>
                 {splitPie.map((entry, index) => (
                   <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(value) => formatMoney(value, currency)} />
+              <Tooltip formatter={(value) => formatChartMoney(value, currency)} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
@@ -2910,14 +2945,14 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
 }
 
 function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear }) {
-  const [year, setYear] = useState(selectedYear);
-  const [month, setMonth] = useState(selectedMonth);
-  const [periodType, setPeriodType] = useState(selectedPeriodType);
-  const [quarter, setQuarter] = useState(selectedQuarter);
-  const [halfYear, setHalfYear] = useState(selectedHalfYear);
-  const [goalType, setGoalType] = useState("Responsibility Goal");
-  const [currencyView, setCurrencyView] = useState("KRW");
-  const [selectedTeamIds, setSelectedTeamIds] = useState(null);
+  const [year, setYear] = useStoredState("midas-summary-year", selectedYear);
+  const [month, setMonth] = useStoredState("midas-summary-month", selectedMonth);
+  const [periodType, setPeriodType] = useStoredState("midas-summary-period-type", selectedPeriodType);
+  const [quarter, setQuarter] = useStoredState("midas-summary-quarter", selectedQuarter);
+  const [halfYear, setHalfYear] = useStoredState("midas-summary-half-year", selectedHalfYear);
+  const [goalType, setGoalType] = useStoredState("midas-summary-goal-type", "Responsibility Goal");
+  const [currencyView, setCurrencyView] = useStoredState("midas-summary-currency-view", "KRW");
+  const [selectedTeamIds, setSelectedTeamIds] = useStoredState("midas-summary-team-ids", null);
   const [teamFilterOpen, setTeamFilterOpen] = useState(false);
   const useKrw = currencyView === "KRW";
   const summaryCurrency = useKrw ? "KRW" : "GBP";
@@ -3011,7 +3046,7 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
         </p>
       </div>
       <div className="panel p-4">
-        <div className="grid gap-3 md:grid-cols-6">
+        <div className="grid gap-3 md:grid-cols-6 xl:grid-cols-7">
           <div>
             <label className="label">Year</label>
             <select className="field" value={year} onChange={(e) => setYear(e.target.value)}>
@@ -3176,8 +3211,8 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
             <BarChart data={teamChart}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="team" />
-              <YAxis tickFormatter={(value) => (useKrw ? `${Math.round(value / 1000000)}M` : value)} />
-              <Tooltip formatter={(value) => (useKrw ? formatMoney(value, "KRW") : value.toLocaleString())} />
+              <YAxis tickFormatter={(value) => chartAxisTick(value, useKrw ? "KRW" : summaryCurrency)} />
+              <Tooltip formatter={(value) => formatChartMoney(value, useKrw ? "KRW" : summaryCurrency)} />
               <Legend />
               <Bar dataKey="Target" fill="#0f2742" />
               <Bar dataKey="Achievement + Max" fill="#16825d" />
@@ -3189,8 +3224,8 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
             <BarChart data={categoryChart}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="category" />
-              <YAxis tickFormatter={(value) => (useKrw ? `${Math.round(value / 1000000)}M` : value)} />
-              <Tooltip formatter={(value) => (useKrw ? formatMoney(value, "KRW") : value.toLocaleString())} />
+              <YAxis tickFormatter={(value) => chartAxisTick(value, useKrw ? "KRW" : summaryCurrency)} />
+              <Tooltip formatter={(value) => formatChartMoney(value, useKrw ? "KRW" : summaryCurrency)} />
               <Legend />
               <Bar dataKey="Target" fill="#0f2742" />
               <Bar dataKey="Achievement + Max" fill="#16825d" />
@@ -3208,13 +3243,13 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
                 outerRadius={92}
                 paddingAngle={2}
                 labelLine={false}
-                label={makePieLabel(useKrw ? "KRW" : "GBP")}
+                label={makePieLabel(useKrw ? "KRW" : summaryCurrency)}
               >
                 {coveragePie.map((entry, index) => (
                   <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(value) => (useKrw ? formatMoney(value, "KRW") : value.toLocaleString())} />
+              <Tooltip formatter={(value) => formatChartMoney(value, useKrw ? "KRW" : summaryCurrency)} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
@@ -3230,13 +3265,13 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
                 outerRadius={92}
                 paddingAngle={2}
                 labelLine={false}
-                label={makePieLabel(useKrw ? "KRW" : "GBP")}
+                label={makePieLabel(useKrw ? "KRW" : summaryCurrency)}
               >
                 {forecastPie.map((entry, index) => (
                   <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(value) => (useKrw ? formatMoney(value, "KRW") : value.toLocaleString())} />
+              <Tooltip formatter={(value) => formatChartMoney(value, useKrw ? "KRW" : summaryCurrency)} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
