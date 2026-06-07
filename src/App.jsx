@@ -877,6 +877,7 @@ function PasswordGate({ onLogin }) {
 function ImportPreviewModal({ preview, type, onCancel, onConfirm, importing }) {
   const rows = [...(preview?.errorRows || []), ...(preview?.duplicateRows || []), ...(preview?.validRows || [])].slice(0, 80);
   const hasErrors = Boolean(preview?.errorRows?.length);
+  const updateCount = preview?.summary?.updated || 0;
 
   return (
     <Modal title={`Import ${type} CSV Preview`} onClose={onCancel}>
@@ -889,6 +890,11 @@ function ImportPreviewModal({ preview, type, onCancel, onConfirm, importing }) {
       {hasErrors ? (
         <div className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
           Fix rows with errors before importing. Bad data is not silently saved.
+        </div>
+      ) : null}
+      {updateCount ? (
+        <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+          Warning: this CSV will update {updateCount} existing {type} record{updateCount === 1 ? "" : "s"}. If any existing row was edited incorrectly or fields were cleared in Excel, those changes will overwrite the current app data. Cancel now if you only wanted to add new rows.
         </div>
       ) : null}
       <div className="mt-5 max-h-96 overflow-auto">
@@ -908,7 +914,7 @@ function ImportPreviewModal({ preview, type, onCancel, onConfirm, importing }) {
           Cancel
         </button>
         <button className="btn-primary" onClick={onConfirm} disabled={hasErrors || importing}>
-          {importing ? "Importing..." : "Confirm Import"}
+          {importing ? "Importing..." : updateCount ? "Confirm Add / Update Import" : "Confirm Import"}
         </button>
       </div>
     </Modal>
@@ -2552,6 +2558,15 @@ export default function App() {
 
   async function confirmCsvImport() {
     if (!importJob) return;
+    const updateCount = importJob.preview?.summary?.updated || 0;
+    if (
+      updateCount &&
+      !confirm(
+        `This CSV will update ${updateCount} existing ${importJob.type} record${updateCount === 1 ? "" : "s"}.\n\nExisting records are not deleted, but matching rows can be overwritten with values from the CSV, including accidental blank fields.\n\nContinue with import?`
+      )
+    ) {
+      return;
+    }
     setImporting(true);
     try {
       await api.importCsv(importJob.type, importJob.file);
