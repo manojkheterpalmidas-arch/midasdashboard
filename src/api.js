@@ -48,6 +48,12 @@ function cleanDeal(deal) {
   };
 }
 
+function dealKey(deal) {
+  return [deal.teamId, deal.repName, deal.year, deal.month, deal.companyName, deal.product, deal.category, deal.dealType]
+    .map((part) => String(part || "").toLowerCase())
+    .join("|");
+}
+
 function cleanGoal(goal) {
   return {
     ...goal,
@@ -274,6 +280,31 @@ export const api = {
   getDeals: async () => (await readAllData()).deals,
   createDeal: async (deal) => upsertRow("Deals", cleanDeal(deal), "Deal created"),
   updateDeal: async (id, deal) => upsertRow("Deals", cleanDeal({ ...deal, id }), "Deal updated"),
+  createDealsBulk: async (deals) => {
+    const existingRows = await readSheet("Deals");
+    const timestamp = nowIso();
+    let added = 0;
+    let updated = 0;
+    const nextRows = [...existingRows];
+    const indexByKey = new Map(existingRows.map((deal, index) => [dealKey(deal), index]));
+
+    deals.map(cleanDeal).forEach((deal) => {
+      const key = dealKey(deal);
+      const existingIndex = indexByKey.get(key);
+      if (existingIndex >= 0) {
+        nextRows[existingIndex] = { ...nextRows[existingIndex], ...deal, id: nextRows[existingIndex].id || deal.id || createId("deal"), updatedAt: timestamp };
+        updated += 1;
+      } else {
+        indexByKey.set(key, nextRows.length);
+        nextRows.push({ ...deal, id: deal.id || createId("deal"), createdAt: deal.createdAt || timestamp, updatedAt: timestamp });
+        added += 1;
+      }
+    });
+
+    await writeSheet("Deals", nextRows);
+    await audit("Bulk closed achievements saved", "Deals", "bulk-achievements", { added, updated });
+    return { added, updated };
+  },
   deleteDeal: async (id) => deleteRow("Deals", id, "Deal deleted"),
 
   getGoals: async () => (await readAllData()).goals,

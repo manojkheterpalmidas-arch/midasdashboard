@@ -1549,6 +1549,173 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel, saving 
   );
 }
 
+function BulkAchievementForm({ teams, selectedYear, onSave, onCancel, saving = false }) {
+  const firstTeam = teams[0];
+  const [teamId, setTeamId] = useState(firstTeam?.id || "");
+  const [repName, setRepName] = useState(firstTeam?.reps?.[0] || "");
+  const [year, setYear] = useState(selectedYear);
+  const [amountCurrency, setAmountCurrency] = useState("Local");
+  const [grid, setGrid] = useState({});
+  const team = getTeam(teams, teamId);
+  const achievementCurrencyLabel = amountCurrency === "KRW" ? "KRW" : team?.currency || "Local";
+
+  function setAmount(month, category, value) {
+    setGrid((current) => ({ ...current, [`${month}-${category}`]: value }));
+  }
+
+  function cleanPastedAmount(value) {
+    return String(value || "")
+      .trim()
+      .replace(/[₩£€$,\s]/g, "");
+  }
+
+  function pasteGrid(startMonth, startCategory, event) {
+    const text = event.clipboardData?.getData("text/plain");
+    if (!text) return;
+    const pastedRows = text
+      .replace(/\r/g, "")
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) => line.split("\t").map(cleanPastedAmount));
+    if (!pastedRows.length) return;
+
+    event.preventDefault();
+    const startCategoryIndex = CATEGORIES.indexOf(startCategory);
+    setGrid((current) => {
+      const next = { ...current };
+      pastedRows.forEach((row, rowOffset) => {
+        const month = startMonth + rowOffset;
+        if (month > 12) return;
+        row.forEach((value, columnOffset) => {
+          const category = CATEGORIES[startCategoryIndex + columnOffset];
+          if (!category) return;
+          next[`${month}-${category}`] = value;
+        });
+      });
+      return next;
+    });
+  }
+
+  function submit(event) {
+    event.preventDefault();
+    const rows = [];
+    for (let month = 1; month <= 12; month += 1) {
+      CATEGORIES.forEach((category) => {
+        const rawAmount = grid[`${month}-${category}`];
+        if (rawAmount === "" || rawAmount === undefined || rawAmount === null) return;
+        const localAmount = goalInputToLocalAmount(rawAmount, amountCurrency, team);
+        rows.push({
+          id: createId("deal"),
+          teamId,
+          repName,
+          year: num(year),
+          month,
+          companyName: "Historical Achievement",
+          product: "Closed Achievement Entry",
+          category,
+          dealType: "Other",
+          minAmount: 0,
+          maxAmount: localAmount,
+          probability: 100,
+          temperature: "High",
+          status: "Closed",
+          closedAmount: localAmount,
+          expectedCloseDate: "",
+          comments: "Bulk entered previous achievement",
+          nextAction: ""
+        });
+      });
+    }
+    onSave(rows);
+  }
+
+  return (
+    <form onSubmit={submit}>
+      <div className="grid gap-4 md:grid-cols-4">
+        <div>
+          <label className="label">Team</label>
+          <select
+            className="field"
+            value={teamId}
+            onChange={(e) => {
+              setTeamId(e.target.value);
+              setRepName(getTeam(teams, e.target.value)?.reps?.[0] || "");
+            }}
+          >
+            {teams.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.teamName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Rep</label>
+          <select className="field" value={repName} onChange={(e) => setRepName(e.target.value)}>
+            {(team?.reps || []).map((rep) => (
+              <option key={rep}>{rep}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Year</label>
+          <select className="field" value={year} onChange={(e) => setYear(e.target.value)}>
+            {YEARS.map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Amount currency</label>
+          <select className="field" value={amountCurrency} onChange={(e) => setAmountCurrency(e.target.value)}>
+            <option>Local</option>
+            <option>KRW</option>
+          </select>
+        </div>
+      </div>
+      <div className="mt-4 rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
+        Enter previous closed achievements in {achievementCurrencyLabel}. You can paste a block from Excel or Google Sheets. These values are saved as closed achievement entries and will count in Dashboard, Team View, and Summary.
+      </div>
+      <div className="mt-5 overflow-x-auto">
+        <table className="min-w-full border-separate border-spacing-0">
+          <thead>
+            <tr className="table-head">
+              <th className="px-3 py-3">Month</th>
+              {CATEGORIES.map((category) => (
+                <th key={category} className="px-3 py-3">
+                  {category}
+                  <div className="text-xs font-semibold normal-case text-slate-400">{achievementCurrencyLabel}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {MONTHS.map((month, index) => (
+              <tr key={month}>
+                <td className="table-cell font-semibold">{month}</td>
+                {CATEGORIES.map((category) => (
+                  <td key={category} className="table-cell">
+                    <input
+                      type="number"
+                      min="0"
+                      className="field min-w-32"
+                      value={grid[`${index + 1}-${category}`] || ""}
+                      onChange={(e) => setAmount(index + 1, category, e.target.value)}
+                      onPaste={(e) => pasteGrid(index + 1, category, e)}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {saving ? <div className="mt-4 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">Saving closed achievements to Google Sheets...</div> : null}
+      <FormActions onCancel={onCancel} submitLabel={saving ? "Saving..." : "Save closed achievements"} disabled={saving} />
+    </form>
+  );
+}
+
 function ChartPanel({ title, children, tall = false }) {
   return (
     <div className="panel p-4">
@@ -1988,8 +2155,10 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
   const [year, setYear] = useState(selectedYear);
   const [editing, setEditing] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [achievementBulkOpen, setAchievementBulkOpen] = useState(false);
   const [savingGoal, setSavingGoal] = useState(false);
   const [savingBulk, setSavingBulk] = useState(false);
+  const [savingAchievements, setSavingAchievements] = useState(false);
 
   async function saveGoal(goal) {
     setSavingGoal(true);
@@ -2018,6 +2187,21 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
     }
   }
 
+  async function saveAchievementBulk(rows) {
+    if (!rows.length) {
+      alert("Enter at least one achievement amount before saving.");
+      return;
+    }
+    setSavingAchievements(true);
+    try {
+      await api.createDealsBulk(rows);
+      await refreshData();
+      setAchievementBulkOpen(false);
+    } finally {
+      setSavingAchievements(false);
+    }
+  }
+
   async function deleteGoal(goalId) {
     if (!confirm("Delete this monthly goal?")) return;
     await api.deleteGoal(goalId);
@@ -2031,9 +2215,12 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="section-title">Monthly Goals</h2>
-          <p className="text-sm text-slate-500">Official targets by team, rep, month, category, and goal type.</p>
+          <p className="text-sm text-slate-500">Official targets by team, rep, month, category, and goal type. Use bulk achievements to enter previous closed results without recreating historical deals.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button className="btn-secondary" onClick={() => setAchievementBulkOpen(true)}>
+            Bulk add achievements
+          </button>
           <button className="btn-secondary" onClick={() => setBulkOpen(true)}>
             Bulk create monthly goals
           </button>
@@ -2173,6 +2360,17 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
             onSave={saveBulk}
             onCancel={() => setBulkOpen(false)}
             saving={savingBulk}
+          />
+        </Modal>
+      ) : null}
+      {achievementBulkOpen ? (
+        <Modal title="Bulk Add Closed Achievements" onClose={() => setAchievementBulkOpen(false)}>
+          <BulkAchievementForm
+            teams={data.teams}
+            selectedYear={selectedYear}
+            onSave={saveAchievementBulk}
+            onCancel={() => setAchievementBulkOpen(false)}
+            saving={savingAchievements}
           />
         </Modal>
       ) : null}
