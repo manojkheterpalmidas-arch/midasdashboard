@@ -1399,6 +1399,39 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel, saving 
     setGrid((current) => ({ ...current, [`${month}-${category}`]: value }));
   }
 
+  function cleanPastedAmount(value) {
+    return String(value || "")
+      .trim()
+      .replace(/[₩£€$,\s]/g, "");
+  }
+
+  function pasteGrid(startMonth, startCategory, event) {
+    const text = event.clipboardData?.getData("text/plain");
+    if (!text) return;
+    const pastedRows = text
+      .replace(/\r/g, "")
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) => line.split("\t").map(cleanPastedAmount));
+    if (!pastedRows.length) return;
+
+    event.preventDefault();
+    const startCategoryIndex = CATEGORIES.indexOf(startCategory);
+    setGrid((current) => {
+      const next = { ...current };
+      pastedRows.forEach((row, rowOffset) => {
+        const month = startMonth + rowOffset;
+        if (month > 12) return;
+        row.forEach((value, columnOffset) => {
+          const category = CATEGORIES[startCategoryIndex + columnOffset];
+          if (!category) return;
+          next[`${month}-${category}`] = value;
+        });
+      });
+      return next;
+    });
+  }
+
   function submit(event) {
     event.preventDefault();
     const rows = [];
@@ -1474,7 +1507,7 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel, saving 
         </div>
       </div>
       <div className="mt-4 rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
-        Enter all monthly goal values in {targetCurrencyLabel}. Values are saved as local targets and converted to KRW using the selected team's KRW rate.
+        Enter all monthly goal values in {targetCurrencyLabel}. You can paste a block from Excel or Google Sheets into any cell. Values are saved as local targets and converted to KRW using the selected team's KRW rate.
       </div>
       <div className="mt-5 overflow-x-auto">
         <table className="min-w-full border-separate border-spacing-0">
@@ -1501,6 +1534,7 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel, saving 
                       className="field min-w-32"
                       value={grid[`${index + 1}-${category}`] || ""}
                       onChange={(e) => setAmount(index + 1, category, e.target.value)}
+                      onPaste={(e) => pasteGrid(index + 1, category, e)}
                     />
                   </td>
                 ))}
