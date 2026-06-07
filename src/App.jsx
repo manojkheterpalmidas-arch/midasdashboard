@@ -5,6 +5,8 @@ import {
   CartesianGrid,
   Cell,
   Legend,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -2773,6 +2775,26 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
     return { name: category, value: row?.max || 0 };
   }).filter((item) => item.value > 0);
 
+  let runningSales = 0;
+  const monthlySalesChart = periodType === "Monthly"
+    ? []
+    : scope.months.map((scopeMonth) => {
+        const monthMetrics = calculateMetrics({
+          teams: data.teams,
+          deals: data.deals,
+          goals: data.goals,
+          goalType,
+          useKrw,
+          scope: { ...scope, months: [scopeMonth] }
+        });
+        runningSales += monthMetrics.closed;
+        return {
+          month: monthName(scopeMonth).slice(0, 3),
+          Sales: monthMetrics.closed,
+          Cumulative: runningSales
+        };
+      });
+
   return (
     <div className="space-y-5">
       <div>
@@ -2912,6 +2934,21 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
           ]}
         />
       </div>
+      {periodType !== "Monthly" ? (
+        <ChartPanel title={`Sales by Month - ${label}`} tall>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={monthlySalesChart} margin={{ top: 12, right: 24, left: 8, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis tickFormatter={(value) => chartAxisTick(value, currency)} />
+              <Tooltip formatter={(value) => formatChartMoney(value, currency)} />
+              <Legend />
+              <Line type="monotone" dataKey="Sales" stroke="#1d4f8f" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+              <Line type="monotone" dataKey="Cumulative" stroke="#16825d" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartPanel>
+      ) : null}
       <div className="grid gap-4 xl:grid-cols-3">
         <ChartPanel title="Achievement + Max Forecast vs Target">
           <ResponsiveContainer width="100%" height="100%">
