@@ -39,6 +39,17 @@ const CURRENCIES = ["GBP", "EUR", "PLN", "USD"];
 const CHART_COLORS = ["#16825d", "#1d4f8f", "#d18b16", "#c24136", "#6d5bd0"];
 const RADIAN = Math.PI / 180;
 const TABS = ["Dashboard", "Teams", "Deals", "Monthly Goals", "Team View", "Summary"];
+const PERIOD_TYPES = ["Monthly", "Quarterly", "Half-Yearly"];
+const QUARTERS = [
+  { value: 1, label: "Q1", months: [1, 2, 3] },
+  { value: 2, label: "Q2", months: [4, 5, 6] },
+  { value: 3, label: "Q3", months: [7, 8, 9] },
+  { value: 4, label: "Q4", months: [10, 11, 12] }
+];
+const HALF_YEARS = [
+  { value: 1, label: "H1", months: [1, 2, 3, 4, 5, 6] },
+  { value: 2, label: "H2", months: [7, 8, 9, 10, 11, 12] }
+];
 const CSV_FIELDS = [
   "entity",
   "id",
@@ -271,7 +282,7 @@ function createDemoData() {
     teams,
     goals,
     deals,
-    preparedBy: "Sales Manager",
+    preparedBy: "Vito Lee",
     lastUpdated: new Date().toISOString()
   };
 }
@@ -417,7 +428,7 @@ function csvToData(text) {
     teams,
     deals,
     goals,
-    preparedBy: meta.preparedBy || "Sales Manager",
+    preparedBy: meta.preparedBy || "Vito Lee",
     lastUpdated: new Date().toISOString()
   };
 }
@@ -428,7 +439,7 @@ function emptyData() {
     deals: [],
     goals: [],
     settings: {},
-    preparedBy: "Sales Manager",
+    preparedBy: "Vito Lee",
     lastUpdated: ""
   };
 }
@@ -440,6 +451,32 @@ function num(value) {
 
 function monthName(month) {
   return MONTHS[num(month) - 1] || "";
+}
+
+function periodMonths(periodType, month, quarter, halfYear) {
+  if (periodType === "Quarterly") return QUARTERS.find((item) => num(item.value) === num(quarter))?.months || [1, 2, 3];
+  if (periodType === "Half-Yearly") return HALF_YEARS.find((item) => num(item.value) === num(halfYear))?.months || [1, 2, 3, 4, 5, 6];
+  return [num(month) || 1];
+}
+
+function periodLabel({ periodType = "Monthly", year, month, quarter, halfYear }) {
+  if (periodType === "Quarterly") {
+    const item = QUARTERS.find((entry) => num(entry.value) === num(quarter)) || QUARTERS[0];
+    return `${item.label} ${year}`;
+  }
+  if (periodType === "Half-Yearly") {
+    const item = HALF_YEARS.find((entry) => num(entry.value) === num(halfYear)) || HALF_YEARS[0];
+    return `${item.label} ${year}`;
+  }
+  return `${monthName(month)} ${year}`;
+}
+
+function periodScope({ year, periodType = "Monthly", month, quarter, halfYear, ...extra }) {
+  return {
+    year,
+    months: periodMonths(periodType, month, quarter, halfYear),
+    ...extra
+  };
 }
 
 function formatMoney(value, currency = "KRW") {
@@ -537,6 +574,7 @@ function amountForView(amount, team, useKrw) {
 
 function matchesScope(item, scope) {
   if (scope.year && num(item.year) !== num(scope.year)) return false;
+  if (scope.months?.length && !scope.months.map(num).includes(num(item.month))) return false;
   if (scope.month && num(item.month) !== num(scope.month)) return false;
   if (scope.teamId && item.teamId !== scope.teamId) return false;
   if (scope.repName && scope.repName !== "All reps" && item.repName !== scope.repName) return false;
@@ -654,8 +692,14 @@ function Header({
   setActiveTab,
   selectedYear,
   setSelectedYear,
+  selectedPeriodType,
+  setSelectedPeriodType,
   selectedMonth,
   setSelectedMonth,
+  selectedQuarter,
+  setSelectedQuarter,
+  selectedHalfYear,
+  setSelectedHalfYear,
   preparedBy,
   setPreparedBy,
   lastUpdated,
@@ -703,17 +747,45 @@ function Header({
               </select>
             </div>
             <div>
-              <label className="label">Month</label>
-              <select className="field" value={selectedMonth} onChange={(e) => setSelectedMonth(num(e.target.value))}>
-                {MONTHS.map((month, index) => (
-                  <option key={month} value={index + 1}>
-                    {month}
-                  </option>
+              <label className="label">Period</label>
+              <select className="field" value={selectedPeriodType} onChange={(e) => setSelectedPeriodType(e.target.value)}>
+                {PERIOD_TYPES.map((period) => (
+                  <option key={period}>{period}</option>
                 ))}
               </select>
             </div>
             <div className="sm:col-span-2">
-              <label className="label">Prepared by</label>
+              <label className="label">{selectedPeriodType}</label>
+              {selectedPeriodType === "Monthly" ? (
+                <select className="field" value={selectedMonth} onChange={(e) => setSelectedMonth(num(e.target.value))}>
+                  {MONTHS.map((month, index) => (
+                    <option key={month} value={index + 1}>
+                      {month}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {selectedPeriodType === "Quarterly" ? (
+                <select className="field" value={selectedQuarter} onChange={(e) => setSelectedQuarter(num(e.target.value))}>
+                  {QUARTERS.map((quarter) => (
+                    <option key={quarter.value} value={quarter.value}>
+                      {quarter.label}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {selectedPeriodType === "Half-Yearly" ? (
+                <select className="field" value={selectedHalfYear} onChange={(e) => setSelectedHalfYear(num(e.target.value))}>
+                  {HALF_YEARS.map((half) => (
+                    <option key={half.value} value={half.value}>
+                      {half.label}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
+            <div className="sm:col-span-2">
+              <label className="label">Prepared for</label>
               <input className="field" value={preparedBy} onChange={(e) => setPreparedBy(e.target.value)} />
             </div>
           </div>
@@ -1402,16 +1474,30 @@ function ChartPanel({ title, children, tall = false }) {
   );
 }
 
-function Dashboard({ data, selectedYear, selectedMonth }) {
+function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear }) {
   const [goalType, setGoalType] = useState("Responsibility Goal");
   const { teams, deals, goals } = data;
+  const baseScope = periodScope({
+    year: selectedYear,
+    periodType: selectedPeriodType,
+    month: selectedMonth,
+    quarter: selectedQuarter,
+    halfYear: selectedHalfYear
+  });
+  const label = periodLabel({
+    year: selectedYear,
+    periodType: selectedPeriodType,
+    month: selectedMonth,
+    quarter: selectedQuarter,
+    halfYear: selectedHalfYear
+  });
   const metrics = calculateMetrics({
     teams,
     deals,
     goals,
     goalType,
     useKrw: true,
-    scope: { year: selectedYear, month: selectedMonth }
+    scope: baseScope
   });
 
   const teamRows = teams.map((team) => {
@@ -1421,7 +1507,7 @@ function Dashboard({ data, selectedYear, selectedMonth }) {
       goals,
       goalType,
       useKrw: true,
-      scope: { year: selectedYear, month: selectedMonth, teamId: team.id }
+      scope: { ...baseScope, teamId: team.id }
     });
     return {
       id: team.id,
@@ -1446,7 +1532,7 @@ function Dashboard({ data, selectedYear, selectedMonth }) {
       goals,
       goalType,
       useKrw: true,
-      scope: { year: selectedYear, month: selectedMonth, category }
+      scope: { ...baseScope, category }
     });
     return {
       category,
@@ -1481,7 +1567,7 @@ function Dashboard({ data, selectedYear, selectedMonth }) {
         <div>
           <h2 className="section-title">Dashboard</h2>
           <p className="text-sm text-slate-500">
-            Management view for {monthName(selectedMonth)} {selectedYear}, shown in KRW.
+            Management view for {label}, shown in KRW.
           </p>
         </div>
         <div className="w-full md:w-64">
@@ -2024,15 +2110,19 @@ function ForecastTable({ title, deals, team, currency }) {
   );
 }
 
-function TeamView({ data, selectedYear, selectedMonth }) {
+function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear }) {
   const [teamId, setTeamId] = useState(data.teams[0]?.id || "");
   const [year, setYear] = useState(selectedYear);
   const [month, setMonth] = useState(selectedMonth);
+  const [periodType, setPeriodType] = useState(selectedPeriodType);
+  const [quarter, setQuarter] = useState(selectedQuarter);
+  const [halfYear, setHalfYear] = useState(selectedHalfYear);
   const [goalType, setGoalType] = useState("Responsibility Goal");
   const [repName, setRepName] = useState("All reps");
   const team = getTeam(data.teams, teamId) || data.teams[0];
   const currency = team?.currency || "GBP";
-  const scope = { year, month, teamId: team?.id, repName };
+  const scope = periodScope({ year, periodType, month, quarter, halfYear, teamId: team?.id, repName });
+  const label = periodLabel({ year, periodType, month, quarter, halfYear });
   const metrics = calculateMetrics({ teams: data.teams, deals: data.deals, goals: data.goals, goalType, useKrw: false, scope });
   const openDeals = data.deals.filter((deal) => deal.status === "Open" && matchesScope(deal, scope));
 
@@ -2071,10 +2161,10 @@ function TeamView({ data, selectedYear, selectedMonth }) {
     <div className="space-y-5">
       <div>
         <h2 className="section-title">Team View</h2>
-        <p className="text-sm text-slate-500">Team-level working view in local currency.</p>
+        <p className="text-sm text-slate-500">Team-level working view for {label}, shown in local currency.</p>
       </div>
       <div className="panel p-4">
-        <div className="grid gap-3 md:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-6">
           <div>
             <label className="label">Team</label>
             <select
@@ -2101,14 +2191,42 @@ function TeamView({ data, selectedYear, selectedMonth }) {
             </select>
           </div>
           <div>
-            <label className="label">Month</label>
-            <select className="field" value={month} onChange={(e) => setMonth(e.target.value)}>
-              {MONTHS.map((item, index) => (
-                <option key={item} value={index + 1}>
-                  {item}
-                </option>
+            <label className="label">Period</label>
+            <select className="field" value={periodType} onChange={(e) => setPeriodType(e.target.value)}>
+              {PERIOD_TYPES.map((item) => (
+                <option key={item}>{item}</option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="label">{periodType}</label>
+            {periodType === "Monthly" ? (
+              <select className="field" value={month} onChange={(e) => setMonth(e.target.value)}>
+                {MONTHS.map((item, index) => (
+                  <option key={item} value={index + 1}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            {periodType === "Quarterly" ? (
+              <select className="field" value={quarter} onChange={(e) => setQuarter(e.target.value)}>
+                {QUARTERS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            {periodType === "Half-Yearly" ? (
+              <select className="field" value={halfYear} onChange={(e) => setHalfYear(e.target.value)}>
+                {HALF_YEARS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            ) : null}
           </div>
           <div>
             <label className="label">Goal type</label>
@@ -2215,20 +2333,25 @@ function TeamView({ data, selectedYear, selectedMonth }) {
   );
 }
 
-function SummaryPage({ data, selectedYear, selectedMonth }) {
+function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear }) {
   const [year, setYear] = useState(selectedYear);
   const [month, setMonth] = useState(selectedMonth);
+  const [periodType, setPeriodType] = useState(selectedPeriodType);
+  const [quarter, setQuarter] = useState(selectedQuarter);
+  const [halfYear, setHalfYear] = useState(selectedHalfYear);
   const [goalType, setGoalType] = useState("Responsibility Goal");
   const [currencyView, setCurrencyView] = useState("KRW");
   const useKrw = currencyView === "KRW";
   const summaryCurrency = useKrw ? "KRW" : "GBP";
+  const baseScope = periodScope({ year, periodType, month, quarter, halfYear });
+  const label = periodLabel({ year, periodType, month, quarter, halfYear });
   const metrics = calculateMetrics({
     teams: data.teams,
     deals: data.deals,
     goals: data.goals,
     goalType,
     useKrw,
-    scope: { year, month }
+    scope: baseScope
   });
 
   const teamRows = data.teams.map((team) => {
@@ -2238,7 +2361,7 @@ function SummaryPage({ data, selectedYear, selectedMonth }) {
       goals: data.goals,
       goalType,
       useKrw,
-      scope: { year, month, teamId: team.id }
+      scope: { ...baseScope, teamId: team.id }
     });
     return { id: team.id, team, ...itemMetrics, status: riskFor(itemMetrics) };
   });
@@ -2250,7 +2373,7 @@ function SummaryPage({ data, selectedYear, selectedMonth }) {
       goals: data.goals,
       goalType,
       useKrw,
-      scope: { year, month, category }
+      scope: { ...baseScope, category }
     });
     return { id: category, category, ...itemMetrics };
   });
@@ -2289,10 +2412,10 @@ function SummaryPage({ data, selectedYear, selectedMonth }) {
     <div className="space-y-5">
       <div>
         <h2 className="section-title">Summary</h2>
-        <p className="text-sm text-slate-500">Combined manager view. KRW is recommended for cross-team totals.</p>
+        <p className="text-sm text-slate-500">Combined manager view for {label}. KRW is recommended for cross-team totals.</p>
       </div>
       <div className="panel p-4">
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-6">
           <div>
             <label className="label">Year</label>
             <select className="field" value={year} onChange={(e) => setYear(e.target.value)}>
@@ -2302,14 +2425,42 @@ function SummaryPage({ data, selectedYear, selectedMonth }) {
             </select>
           </div>
           <div>
-            <label className="label">Month</label>
-            <select className="field" value={month} onChange={(e) => setMonth(e.target.value)}>
-              {MONTHS.map((item, index) => (
-                <option key={item} value={index + 1}>
-                  {item}
-                </option>
+            <label className="label">Period</label>
+            <select className="field" value={periodType} onChange={(e) => setPeriodType(e.target.value)}>
+              {PERIOD_TYPES.map((item) => (
+                <option key={item}>{item}</option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="label">{periodType}</label>
+            {periodType === "Monthly" ? (
+              <select className="field" value={month} onChange={(e) => setMonth(e.target.value)}>
+                {MONTHS.map((item, index) => (
+                  <option key={item} value={index + 1}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            {periodType === "Quarterly" ? (
+              <select className="field" value={quarter} onChange={(e) => setQuarter(e.target.value)}>
+                {QUARTERS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            {periodType === "Half-Yearly" ? (
+              <select className="field" value={halfYear} onChange={(e) => setHalfYear(e.target.value)}>
+                {HALF_YEARS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            ) : null}
           </div>
           <div>
             <label className="label">Goal type</label>
@@ -2472,6 +2623,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [selectedYear, setSelectedYear] = useState(2026);
   const [selectedMonth, setSelectedMonth] = useState(6);
+  const [selectedPeriodType, setSelectedPeriodType] = useState("Monthly");
+  const [selectedQuarter, setSelectedQuarter] = useState(2);
+  const [selectedHalfYear, setSelectedHalfYear] = useState(1);
   const [authChecked, setAuthChecked] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
   const [appError, setAppError] = useState("");
@@ -2509,7 +2663,7 @@ export default function App() {
         deals: nextData.deals,
         goals: nextData.goals,
         settings: nextData.settings,
-        preparedBy: nextData.settings?.preparedBy || current.preparedBy,
+        preparedBy: nextData.settings?.preparedFor || "Vito Lee",
         lastUpdated: new Date().toISOString()
       }));
       setAuthenticated(true);
@@ -2600,12 +2754,39 @@ export default function App() {
   }
 
   const content = {
-    Dashboard: <Dashboard data={data} selectedYear={selectedYear} selectedMonth={selectedMonth} />,
+    Dashboard: (
+      <Dashboard
+        data={data}
+        selectedYear={selectedYear}
+        selectedMonth={selectedMonth}
+        selectedPeriodType={selectedPeriodType}
+        selectedQuarter={selectedQuarter}
+        selectedHalfYear={selectedHalfYear}
+      />
+    ),
     Teams: <TeamsPage data={data} refreshData={refreshData} />,
     Deals: <DealsPage data={data} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} />,
     "Monthly Goals": <GoalsPage data={data} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} />,
-    "Team View": <TeamView data={data} selectedYear={selectedYear} selectedMonth={selectedMonth} />,
-    Summary: <SummaryPage data={data} selectedYear={selectedYear} selectedMonth={selectedMonth} />
+    "Team View": (
+      <TeamView
+        data={data}
+        selectedYear={selectedYear}
+        selectedMonth={selectedMonth}
+        selectedPeriodType={selectedPeriodType}
+        selectedQuarter={selectedQuarter}
+        selectedHalfYear={selectedHalfYear}
+      />
+    ),
+    Summary: (
+      <SummaryPage
+        data={data}
+        selectedYear={selectedYear}
+        selectedMonth={selectedMonth}
+        selectedPeriodType={selectedPeriodType}
+        selectedQuarter={selectedQuarter}
+        selectedHalfYear={selectedHalfYear}
+      />
+    )
   };
 
   if (!authChecked) {
@@ -2624,8 +2805,14 @@ export default function App() {
           setActiveTab={setActiveTab}
           selectedYear={selectedYear}
           setSelectedYear={setSelectedYear}
+          selectedPeriodType={selectedPeriodType}
+          setSelectedPeriodType={setSelectedPeriodType}
           selectedMonth={selectedMonth}
           setSelectedMonth={setSelectedMonth}
+          selectedQuarter={selectedQuarter}
+          setSelectedQuarter={setSelectedQuarter}
+          selectedHalfYear={selectedHalfYear}
+          setSelectedHalfYear={setSelectedHalfYear}
           preparedBy={data.preparedBy}
           setPreparedBy={setPreparedBy}
           lastUpdated={data.lastUpdated}
