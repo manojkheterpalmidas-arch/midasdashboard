@@ -2343,11 +2343,18 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
   const [goalType, setGoalType] = useState("Responsibility Goal");
   const [currencyView, setCurrencyView] = useState("KRW");
   const [selectedTeamIds, setSelectedTeamIds] = useState(null);
+  const [teamFilterOpen, setTeamFilterOpen] = useState(false);
   const useKrw = currencyView === "KRW";
   const summaryCurrency = useKrw ? "KRW" : "GBP";
   const allTeamIds = data.teams.map((team) => team.id);
   const activeTeamIds = selectedTeamIds ?? allTeamIds;
   const selectedTeams = data.teams.filter((team) => activeTeamIds.includes(team.id));
+  const teamFilterLabel =
+    activeTeamIds.length === data.teams.length
+      ? "All teams"
+      : activeTeamIds.length
+        ? `${activeTeamIds.length} selected`
+        : "No teams selected";
   const baseScope = periodScope({ year, periodType, month, quarter, halfYear, teamIds: activeTeamIds });
   const label = periodLabel({ year, periodType, month, quarter, halfYear });
   const metrics = calculateMetrics({
@@ -2493,26 +2500,36 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
           </div>
         </div>
         <div className="mt-4 border-t border-midas-line pt-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <label className="label mb-0">Included teams</label>
-            <div className="flex flex-wrap gap-2">
-              <button className="btn-secondary py-1.5 text-sm" onClick={() => setSelectedTeamIds(allTeamIds)}>
-                Select all
-              </button>
-              <button className="btn-secondary py-1.5 text-sm" onClick={() => setSelectedTeamIds([])}>
-                Clear
-              </button>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="label mb-1">Team filter</div>
+              <div className="text-sm font-semibold text-slate-500">{teamFilterLabel}</div>
             </div>
+            <button className="btn-secondary" onClick={() => setTeamFilterOpen((open) => !open)}>
+              {teamFilterOpen ? "Hide teams" : "Choose teams"}
+            </button>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {data.teams.map((team) => (
-              <label key={team.id} className="flex items-center gap-2 rounded-md border border-midas-line bg-slate-50 px-3 py-2 text-sm font-semibold text-midas-ink">
-                <input type="checkbox" checked={activeTeamIds.includes(team.id)} onChange={() => toggleTeam(team.id)} />
-                <span>{team.teamName}</span>
-              </label>
-            ))}
-          </div>
-          {!activeTeamIds.length ? <div className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">No teams selected. Summary totals will show zero until at least one team is selected.</div> : null}
+          {teamFilterOpen ? (
+            <div className="mt-4 rounded-lg border border-midas-line bg-slate-50 p-3">
+              <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                <button className="btn-secondary py-1.5 text-sm" onClick={() => setSelectedTeamIds(allTeamIds)}>
+                  Select all
+                </button>
+                <button className="btn-secondary py-1.5 text-sm" onClick={() => setSelectedTeamIds([])}>
+                  Clear
+                </button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {data.teams.map((team) => (
+                  <label key={team.id} className="flex items-center gap-2 rounded-md border border-midas-line bg-white px-3 py-2 text-sm font-semibold text-midas-ink">
+                    <input type="checkbox" checked={activeTeamIds.includes(team.id)} onChange={() => toggleTeam(team.id)} />
+                    <span>{team.teamName}</span>
+                  </label>
+                ))}
+              </div>
+              {!activeTeamIds.length ? <div className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">No teams selected. Summary totals will show zero until at least one team is selected.</div> : null}
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
