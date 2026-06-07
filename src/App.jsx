@@ -1077,6 +1077,7 @@ function TeamForm({ initialTeam, onSave, onCancel }) {
             required
             type="number"
             min="0"
+            step="any"
             className="field"
             value={form.krwRate}
             onChange={(e) => update("krwRate", e.target.value)}
@@ -1202,11 +1203,11 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
         </div>
         <div>
           <label className="label">Min amount</label>
-          <input type="number" min="0" className="field" value={form.minAmount} onChange={(e) => update("minAmount", e.target.value)} />
+          <input type="number" min="0" step="any" className="field" value={form.minAmount} onChange={(e) => update("minAmount", e.target.value)} />
         </div>
         <div>
           <label className="label">Max amount</label>
-          <input type="number" min="0" className="field" value={form.maxAmount} onChange={(e) => update("maxAmount", e.target.value)} />
+          <input type="number" min="0" step="any" className="field" value={form.maxAmount} onChange={(e) => update("maxAmount", e.target.value)} />
         </div>
         <div>
           <label className="label">Probability %</label>
@@ -1240,6 +1241,7 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
           <input
             type="number"
             min="0"
+            step="any"
             className="field"
             value={form.closedAmount}
             onChange={(e) => update("closedAmount", e.target.value)}
@@ -1369,6 +1371,7 @@ function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, o
           <input
             type="number"
             min="0"
+            step="any"
             className="field"
             value={targetInput}
             onChange={(e) => setTargetInput(e.target.value)}
@@ -1531,6 +1534,7 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel, saving 
                     <input
                       type="number"
                       min="0"
+                      step="any"
                       className="field min-w-32"
                       value={grid[`${index + 1}-${category}`] || ""}
                       onChange={(e) => setAmount(index + 1, category, e.target.value)}
@@ -1698,6 +1702,7 @@ function BulkAchievementForm({ teams, selectedYear, onSave, onCancel, saving = f
                     <input
                       type="number"
                       min="0"
+                      step="any"
                       className="field min-w-32"
                       value={grid[`${index + 1}-${category}`] || ""}
                       onChange={(e) => setAmount(index + 1, category, e.target.value)}
