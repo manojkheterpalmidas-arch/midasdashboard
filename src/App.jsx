@@ -2072,10 +2072,10 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
   });
 
   const coveragePie = [
-    { name: "Closed", value: metrics.closed },
-    { name: "Open Min", value: metrics.min },
-    { name: "Upside", value: Math.max(metrics.max - metrics.min, 0) },
-    { name: "Remaining to Target", value: Math.max(metrics.target - metrics.achievementMax, 0) }
+    { name: "Closed", value: metrics.closed, color: "#16825d" },
+    { name: "Open Min", value: metrics.min, color: "#1d4f8f" },
+    { name: "Upside", value: Math.max(metrics.max - metrics.min, 0), color: "#d18b16" },
+    { name: "Remaining to Target", value: Math.max(metrics.target - metrics.achievementMax, 0), color: "#c24136" }
   ].filter((item) => item.value > 0);
 
   const kpis = [
@@ -2129,27 +2129,45 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
             </BarChart>
           </ResponsiveContainer>
         </ChartPanel>
-        <ChartPanel title="Overall Coverage">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={coveragePie}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={62}
-                outerRadius={92}
-                paddingAngle={2}
-                labelLine={false}
-                label={makePieLabel("KRW")}
-              >
-                {coveragePie.map((entry, index) => (
-                  <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value) => formatChartMoney(value, "KRW")} />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
+        <ChartPanel title="Overall Coverage" tall>
+          <div className="grid h-full gap-4 md:grid-cols-[minmax(220px,1fr)_240px] md:items-center">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={coveragePie}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={64}
+                  outerRadius={102}
+                  paddingAngle={3}
+                  labelLine={false}
+                  label={false}
+                >
+                  {coveragePie.map((entry) => (
+                    <Cell key={entry.name} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => formatChartMoney(value, "KRW")} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="space-y-3 text-sm">
+              {coveragePie.map((entry) => {
+                const share = metrics.target ? entry.value / metrics.target : 0;
+                return (
+                  <div key={entry.name} className="flex items-start justify-between gap-3 border-b border-midas-line pb-2 last:border-b-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: entry.color }} />
+                      <span className="font-bold text-midas-ink">{entry.name}</span>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="font-bold text-midas-ink">{formatChartMoney(entry.value, "KRW")}</div>
+                      <div className="text-xs font-semibold text-slate-500">{formatPercent(share)} of target</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </ChartPanel>
         <ChartPanel title="Forecast by Category">
           <ResponsiveContainer width="100%" height="100%">
