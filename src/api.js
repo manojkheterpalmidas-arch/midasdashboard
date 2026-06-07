@@ -63,6 +63,16 @@ function cleanGoal(goal) {
   };
 }
 
+function cleanRole(role) {
+  return {
+    ...role,
+    email: String(role.email || "").trim().toLowerCase(),
+    role: role.role === "Manager" ? "Manager" : "Team Member",
+    teamId: role.teamId || "",
+    repName: role.repName || ""
+  };
+}
+
 function goalKey(goal) {
   return [goal.teamId, goal.repName, goal.year, goal.month, goal.category, goal.goalType].map((part) => String(part || "").toLowerCase()).join("|");
 }
@@ -336,6 +346,11 @@ export const api = {
     return { added, updated };
   },
   deleteGoal: async (id) => deleteRow("MonthlyGoals", id, "Goal deleted"),
+
+  getRoles: async () => (await readAllData()).roles,
+  createRole: async (role) => upsertRow("UserRoles", cleanRole(role), "User role created"),
+  updateRole: async (id, role) => upsertRow("UserRoles", cleanRole({ ...role, id }), "User role updated"),
+  deleteRole: async (id) => deleteRow("UserRoles", id, "User role deleted"),
 
   exportJson: () => readAllData(),
   importJson: (data) => replaceSheetData(data),

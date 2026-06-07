@@ -25,11 +25,12 @@ export const SHEET_COLUMNS = {
     "updatedAt"
   ],
   MonthlyGoals: ["id", "teamId", "repName", "year", "month", "category", "goalType", "targetAmount", "createdAt", "updatedAt"],
+  UserRoles: ["id", "email", "role", "teamId", "repName", "createdAt", "updatedAt"],
   Settings: ["key", "value"],
   AuditLog: ["id", "timestamp", "userEmail", "action", "entityType", "entityId", "detailsJson"]
 };
 
-const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email";
 const API_ROOT = "https://sheets.googleapis.com/v4/spreadsheets";
 
 let tokenClient = null;
@@ -53,6 +54,19 @@ export function setSpreadsheetId(nextId) {
 }
 
 export function getUserEmail() {
+  return signedInEmail;
+}
+
+async function refreshUserEmail() {
+  if (!accessToken || signedInEmail) return signedInEmail;
+  try {
+    const profile = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    }).then((res) => res.json());
+    signedInEmail = profile.email || "";
+  } catch {
+    signedInEmail = "";
+  }
   return signedInEmail;
 }
 
@@ -288,18 +302,32 @@ export function normalizeGoal(row) {
   };
 }
 
+export function normalizeRole(row) {
+  const role = row.role === "Manager" ? "Manager" : "Team Member";
+  return {
+    ...row,
+    email: String(row.email || "").trim().toLowerCase(),
+    role,
+    teamId: row.teamId || "",
+    repName: row.repName || ""
+  };
+}
+
 export async function readAllData() {
   await ensureSheets();
-  const [teams, deals, goals, settings] = await Promise.all([
+  await refreshUserEmail();
+  const [teams, deals, goals, roles, settings] = await Promise.all([
     readSheet("Teams"),
     readSheet("Deals"),
     readSheet("MonthlyGoals"),
+    readSheet("UserRoles"),
     readSheet("Settings")
   ]);
   return {
     teams: teams.map(normalizeTeam),
     deals: deals.map(normalizeDeal),
     goals: goals.map(normalizeGoal),
+    roles: roles.map(normalizeRole),
     settings: Object.fromEntries(settings.map((row) => [row.key, row.value]))
   };
 }
@@ -344,6 +372,7 @@ export async function replaceSheetData(data) {
     writeSheet("Teams", (data.teams || []).map((team) => ({ ...team, repsJson: team.repsJson || JSON.stringify(team.reps || []) }))),
     writeSheet("Deals", data.deals || []),
     writeSheet("MonthlyGoals", data.goals || []),
+    writeSheet("UserRoles", data.roles || data.userRoles || []),
     writeSheet("Settings", Object.entries(data.settings || {}).map(([key, value]) => ({ key, value })))
   ]);
   await audit("JSON backup imported", "Backup", "full", {});

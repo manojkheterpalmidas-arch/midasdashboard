@@ -38,6 +38,7 @@ const TEMPERATURES = ["High", "Medium", "Low"];
 const STATUSES = ["Open", "Closed", "Lost", "Long-Term"];
 const GOAL_TYPES = ["Responsibility Goal", "Challenge Goal"];
 const CURRENCIES = ["GBP", "EUR", "PLN", "USD"];
+const ROLE_TYPES = ["Manager", "Team Member"];
 const CHART_COLORS = ["#16825d", "#1d4f8f", "#d18b16", "#c24136", "#6d5bd0"];
 const RADIAN = Math.PI / 180;
 const TABS = ["Dashboard", "Teams", "Deals", "Monthly Goals", "Team View", "Summary"];
@@ -440,6 +441,7 @@ function emptyData() {
     teams: [],
     deals: [],
     goals: [],
+    roles: [],
     settings: {},
     preparedBy: "Vito Lee",
     lastUpdated: ""
@@ -542,6 +544,56 @@ function useStoredState(key, initialValue) {
   }, [key, value]);
 
   return [value, setValue];
+}
+
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function accessForUser(roles = [], email = "") {
+  const normalizedEmail = normalizeEmail(email);
+  if (!roles.length) {
+    return { role: "Manager", email: normalizedEmail, unrestrictedSetup: true };
+  }
+  const role = roles.find((item) => normalizeEmail(item.email) === normalizedEmail);
+  return role ? { ...role, email: normalizedEmail } : { role: "No Access", email: normalizedEmail };
+}
+
+function isManagerAccess(access) {
+  return access?.role === "Manager";
+}
+
+function canUseTeam(access, teamId) {
+  if (isManagerAccess(access)) return true;
+  if (access?.role === "Team Member") return access.teamId === teamId;
+  return false;
+}
+
+function canUseRep(access, repName) {
+  if (isManagerAccess(access)) return true;
+  if (access?.role === "Team Member") return !access.repName || access.repName === repName;
+  return false;
+}
+
+function canUseRecord(access, record) {
+  return canUseTeam(access, record.teamId) && canUseRep(access, record.repName);
+}
+
+function scopedDataForAccess(data, access) {
+  if (isManagerAccess(access)) return data;
+  const teams = data.teams
+    .filter((team) => canUseTeam(access, team.id))
+    .map((team) => ({
+      ...team,
+      reps: access.role === "Team Member" && access.repName ? team.reps.filter((rep) => rep === access.repName) : team.reps
+    }));
+  return {
+    ...data,
+    teams,
+    deals: data.deals.filter((deal) => canUseRecord(access, deal)),
+    goals: data.goals.filter((goal) => canUseRecord(access, goal)),
+    roles: []
+  };
 }
 
 function makePieLabel(currency = "KRW") {
@@ -716,10 +768,10 @@ function statusTone(value) {
   return "grey";
 }
 
-function TopNav({ activeTab, setActiveTab }) {
+function TopNav({ activeTab, setActiveTab, tabs = TABS }) {
   return (
     <nav className="mt-4 flex gap-2 overflow-x-auto border-t border-midas-line pt-3">
-      {TABS.map((tab) => (
+      {tabs.map((tab) => (
         <button
           key={tab}
           onClick={() => setActiveTab(tab)}
@@ -754,7 +806,10 @@ function Header({
   onImportCsv,
   onExportJson,
   onImportJson,
-  onBackup
+  onBackup,
+  isManager = true,
+  access,
+  availableTabs = TABS
 }) {
   const teamsCsvRef = useRef(null);
   const dealsCsvRef = useRef(null);
@@ -774,9 +829,15 @@ function Header({
               Last updated {lastUpdated ? new Date(lastUpdated).toLocaleString() : "Not saved yet"}
             </p>
           </div>
-          <button className="btn-danger mt-5 w-full sm:w-72" onClick={onBackup}>
-            Download JSON Backup
-          </button>
+          {isManager ? (
+            <button className="btn-danger mt-5 w-full sm:w-72" onClick={onBackup}>
+              Download JSON Backup
+            </button>
+          ) : (
+            <div className="mt-5 rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
+              Signed in as {access?.role || "Team Member"}
+            </div>
+          )}
         </div>
 
         <div className="panel p-4">
@@ -838,6 +899,7 @@ function Header({
           </div>
         </div>
 
+        {isManager ? (
         <div className="panel p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-extrabold uppercase tracking-wide text-slate-500">Data Exchange</h2>
@@ -868,8 +930,9 @@ function Header({
             <input ref={jsonRef} className="hidden" type="file" accept="application/json,.json" onChange={onImportJson} />
           </div>
         </div>
+        ) : null}
       </div>
-      <TopNav activeTab={activeTab} setActiveTab={setActiveTab} />
+      <TopNav activeTab={activeTab} setActiveTab={setActiveTab} tabs={availableTabs} />
     </header>
   );
 }
@@ -2207,7 +2270,140 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
   );
 }
 
-function TeamsPage({ data, refreshData }) {
+function AccessControlPanel({ data, refreshData, currentUserEmail }) {
+  const [editing, setEditing] = useState(null);
+  const blankRole = { email: "", role: "Team Member", teamId: data.teams[0]?.id || "", repName: data.teams[0]?.reps?.[0] || "" };
+  const form = editing || blankRole;
+  const selectedTeam = getTeam(data.teams, form.teamId);
+
+  function update(field, value) {
+    setEditing((current) => {
+      const next = { ...(current || blankRole), [field]: value };
+      if (field === "teamId") next.repName = getTeam(data.teams, value)?.reps?.[0] || "";
+      if (field === "role" && value === "Manager") {
+        next.teamId = "";
+        next.repName = "";
+      }
+      return next;
+    });
+  }
+
+  async function saveRole(event) {
+    event.preventDefault();
+    const role = { ...form, id: form.id || createId("role"), email: normalizeEmail(form.email) };
+    if (!role.email) {
+      alert("Enter the user's Gmail address.");
+      return;
+    }
+    if (role.role !== "Manager" && !role.teamId) {
+      alert("Select a team for this role.");
+      return;
+    }
+    if (role.role === "Team Member" && !role.repName) {
+      alert("Select a rep for this team member.");
+      return;
+    }
+    if (data.roles.some((item) => item.id === role.id)) await api.updateRole(role.id, role);
+    else await api.createRole(role);
+    await refreshData();
+    setEditing(null);
+  }
+
+  async function deleteRole(roleId) {
+    if (!confirm("Remove this access rule?")) return;
+    await api.deleteRole(roleId);
+    await refreshData();
+  }
+
+  return (
+    <div className="panel p-4">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Access Control</h3>
+          <p className="mt-1 text-sm text-slate-500">Assign app-level access by Gmail address. Keep the Google Sheet itself shared carefully.</p>
+        </div>
+        <div className="rounded-md bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">You: {currentUserEmail || "Unknown email"}</div>
+      </div>
+      {!data.roles.length ? (
+        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+          No access rules exist yet, so signed-in users are treated as Manager for setup. Add your own email as Manager first, then add team access rules.
+        </div>
+      ) : null}
+      <form onSubmit={saveRole} className="mb-5 grid gap-3 md:grid-cols-5">
+        <div>
+          <label className="label">Gmail email</label>
+          <input className="field" value={form.email || ""} onChange={(e) => update("email", e.target.value)} placeholder="name@gmail.com" />
+        </div>
+        <div>
+          <label className="label">Role</label>
+          <select className="field" value={form.role || "Team Member"} onChange={(e) => update("role", e.target.value)}>
+            {ROLE_TYPES.map((role) => (
+              <option key={role}>{role}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Team</label>
+          <select className="field" value={form.teamId || ""} onChange={(e) => update("teamId", e.target.value)} disabled={form.role === "Manager"}>
+            <option value="">All teams</option>
+            {data.teams.map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.teamName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Rep</label>
+          <select className="field" value={form.repName || ""} onChange={(e) => update("repName", e.target.value)} disabled={form.role !== "Team Member"}>
+            <option value="">All reps</option>
+            {(selectedTeam?.reps || []).map((rep) => (
+              <option key={rep}>{rep}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-end gap-2">
+          <button className="btn-primary w-full" type="submit">
+            {form.id ? "Save access" : "Add access"}
+          </button>
+          {form.id ? (
+            <button className="btn-secondary" type="button" onClick={() => setEditing(null)}>
+              Clear
+            </button>
+          ) : null}
+        </div>
+      </form>
+      <DataTable
+        rows={data.roles}
+        empty="No access rules yet."
+        columns={[
+          { header: "Email", render: (row) => row.email },
+          { header: "Role", render: (row) => <Badge tone={row.role === "Manager" ? "green" : "amber"}>{row.role === "Team Lead" ? "Team Member" : row.role}</Badge> },
+          { header: "Team", render: (row) => getTeam(data.teams, row.teamId)?.teamName || "All teams" },
+          { header: "Rep", render: (row) => row.repName || "All reps" },
+          {
+            header: "Edit",
+            render: (row) => (
+              <button className="btn-secondary" onClick={() => setEditing(row)}>
+                Edit
+              </button>
+            )
+          },
+          {
+            header: "Delete",
+            render: (row) => (
+              <button className="btn-danger" onClick={() => deleteRole(row.id)}>
+                Delete
+              </button>
+            )
+          }
+        ]}
+      />
+    </div>
+  );
+}
+
+function TeamsPage({ data, refreshData, currentUserEmail }) {
   const [editing, setEditing] = useState(null);
 
   async function saveTeam(team) {
@@ -2268,11 +2464,12 @@ function TeamsPage({ data, refreshData }) {
           <TeamForm initialTeam={editing.id ? editing : null} onSave={saveTeam} onCancel={() => setEditing(null)} />
         </Modal>
       ) : null}
+      <AccessControlPanel data={data} refreshData={refreshData} currentUserEmail={currentUserEmail} />
     </div>
   );
 }
 
-function DealsPage({ data, refreshData, selectedYear, selectedMonth }) {
+function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
   const [editing, setEditing] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [savingBulk, setSavingBulk] = useState(false);
@@ -2291,6 +2488,10 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth }) {
   }
 
   async function saveDeal(deal) {
+    if (!canUseRecord(access, deal)) {
+      alert("You can only save deals for your assigned team/rep.");
+      return;
+    }
     if (data.deals.some((item) => item.id === deal.id)) await api.updateDeal(deal.id, deal);
     else await api.createDeal(deal);
     await refreshData();
@@ -2304,6 +2505,10 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth }) {
     }
     setSavingBulk(true);
     try {
+      if (rows.some((row) => !canUseRecord(access, row))) {
+        alert("Bulk deals can only include your assigned team/rep.");
+        return;
+      }
       await api.createDealsBulk(rows);
       await refreshData();
       setBulkOpen(false);
@@ -3414,6 +3619,7 @@ export default function App() {
         teams: nextData.teams,
         deals: nextData.deals,
         goals: nextData.goals,
+        roles: nextData.roles || [],
         settings: nextData.settings,
         preparedBy: nextData.settings?.preparedFor || "Vito Lee",
         lastUpdated: new Date().toISOString()
@@ -3505,10 +3711,20 @@ export default function App() {
     alert(`Backup created: ${result.filename}`);
   }
 
+  const currentUserEmail = api.getUserEmail();
+  const access = accessForUser(data.roles, currentUserEmail);
+  const isManager = isManagerAccess(access);
+  const scopedData = scopedDataForAccess(data, access);
+  const availableTabs = isManager ? TABS : TABS.filter((tab) => !["Teams", "Monthly Goals"].includes(tab));
+
+  useEffect(() => {
+    if (!availableTabs.includes(activeTab)) setActiveTab(availableTabs[0] || "Dashboard");
+  }, [activeTab, availableTabs.join("|")]);
+
   const content = {
     Dashboard: (
       <Dashboard
-        data={data}
+        data={scopedData}
         selectedYear={selectedYear}
         selectedMonth={selectedMonth}
         selectedPeriodType={selectedPeriodType}
@@ -3516,12 +3732,12 @@ export default function App() {
         selectedHalfYear={selectedHalfYear}
       />
     ),
-    Teams: <TeamsPage data={data} refreshData={refreshData} />,
-    Deals: <DealsPage data={data} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} />,
+    Teams: <TeamsPage data={data} refreshData={refreshData} currentUserEmail={currentUserEmail} />,
+    Deals: <DealsPage data={scopedData} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} access={access} />,
     "Monthly Goals": <GoalsPage data={data} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} />,
     "Team View": (
       <TeamView
-        data={data}
+        data={scopedData}
         selectedYear={selectedYear}
         selectedMonth={selectedMonth}
         selectedPeriodType={selectedPeriodType}
@@ -3531,7 +3747,7 @@ export default function App() {
     ),
     Summary: (
       <SummaryPage
-        data={data}
+        data={scopedData}
         selectedYear={selectedYear}
         selectedMonth={selectedMonth}
         selectedPeriodType={selectedPeriodType}
@@ -3573,6 +3789,9 @@ export default function App() {
           onExportJson={exportJson}
           onImportJson={importJson}
           onBackup={createServerBackup}
+          isManager={isManager}
+          access={access}
+          availableTabs={availableTabs}
         />
         {appError ? <div className="mx-4 mt-4 rounded-md bg-red-50 px-4 py-3 text-sm font-bold text-red-700 lg:mx-6">{appError}</div> : null}
         <main className="p-4 lg:p-6">{content[activeTab]}</main>
