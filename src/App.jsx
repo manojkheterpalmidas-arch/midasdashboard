@@ -572,6 +572,15 @@ function amountForView(amount, team, useKrw) {
   return useKrw ? toKrw(amount, team) : num(amount);
 }
 
+function goalInputToLocalAmount(value, amountCurrency, team) {
+  const amount = num(value);
+  if (amountCurrency === "KRW") {
+    const rate = num(team?.krwRate);
+    return rate > 0 ? amount / rate : 0;
+  }
+  return amount;
+}
+
 function matchesScope(item, scope) {
   if (scope.year && num(item.year) !== num(scope.year)) return false;
   if (scope.months?.length && !scope.months.map(num).includes(num(item.month))) return false;
@@ -925,6 +934,9 @@ function PasswordGate({ onLogin }) {
       <form onSubmit={submit} className="panel w-full max-w-md p-6">
         <h1 className="text-2xl font-bold text-midas-ink">MIDAS Sales Forecast</h1>
         <p className="mt-2 text-sm text-slate-500">Sign in with a Google account that has access to the forecast spreadsheet.</p>
+        <div className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">
+          Please request access from manoj@midasit.com by providing your Gmail email address.
+        </div>
         {error ? <div className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</div> : null}
         {hint ? <div className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">{hint}</div> : null}
         <button className="btn-primary mt-5 w-full" disabled={loading}>
@@ -1265,7 +1277,11 @@ function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, o
       targetAmount: 0
     }
   );
+  const [amountCurrency, setAmountCurrency] = useState("Local");
+  const [targetInput, setTargetInput] = useState(initialGoal?.targetAmount ?? 0);
   const selectedTeam = getTeam(teams, form.teamId);
+  const localTargetAmount = goalInputToLocalAmount(targetInput, amountCurrency, selectedTeam);
+  const targetCurrencyLabel = amountCurrency === "KRW" ? "KRW" : selectedTeam?.currency || "Local";
 
   function update(field, value) {
     setForm((current) => {
@@ -1275,9 +1291,15 @@ function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, o
     });
   }
 
+  function changeAmountCurrency(nextCurrency) {
+    const preservedLocalAmount = localTargetAmount;
+    setAmountCurrency(nextCurrency);
+    setTargetInput(nextCurrency === "KRW" ? Math.round(toKrw(preservedLocalAmount, selectedTeam)) : Number(preservedLocalAmount.toFixed(2)));
+  }
+
   function submit(event) {
     event.preventDefault();
-    onSave(normalizeGoal({ ...form, id: form.id || createId("goal") }));
+    onSave(normalizeGoal({ ...form, id: form.id || createId("goal"), targetAmount: localTargetAmount }));
   }
 
   return (
@@ -1336,14 +1358,24 @@ function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, o
           </select>
         </div>
         <div>
-          <label className="label">Target amount</label>
+          <label className="label">Amount currency</label>
+          <select className="field" value={amountCurrency} onChange={(e) => changeAmountCurrency(e.target.value)}>
+            <option>Local</option>
+            <option>KRW</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Target amount ({targetCurrencyLabel})</label>
           <input
             type="number"
             min="0"
             className="field"
-            value={form.targetAmount}
-            onChange={(e) => update("targetAmount", e.target.value)}
+            value={targetInput}
+            onChange={(e) => setTargetInput(e.target.value)}
           />
+        </div>
+        <div className="md:col-span-3 rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
+          This goal will be saved as {formatMoney(localTargetAmount, selectedTeam?.currency || "Local")} local target and shown as {formatMoney(toKrw(localTargetAmount, selectedTeam), "KRW")} in KRW reports.
         </div>
       </div>
       <FormActions onCancel={onCancel} submitLabel={initialGoal ? "Save goal" : "Add goal"} />
@@ -1357,8 +1389,10 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel }) {
   const [repName, setRepName] = useState(firstTeam?.reps?.[0] || "");
   const [year, setYear] = useState(selectedYear);
   const [type, setType] = useState(goalType);
+  const [amountCurrency, setAmountCurrency] = useState("Local");
   const [grid, setGrid] = useState({});
   const team = getTeam(teams, teamId);
+  const targetCurrencyLabel = amountCurrency === "KRW" ? "KRW" : team?.currency || "Local";
 
   function setAmount(month, category, value) {
     setGrid((current) => ({ ...current, [`${month}-${category}`]: value }));
@@ -1377,7 +1411,7 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel }) {
           month,
           category,
           goalType: type,
-          targetAmount: num(grid[`${month}-${category}`])
+          targetAmount: goalInputToLocalAmount(grid[`${month}-${category}`], amountCurrency, team)
         });
       });
     }
@@ -1386,7 +1420,7 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel }) {
 
   return (
     <form onSubmit={submit}>
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <div>
           <label className="label">Team</label>
           <select
@@ -1428,6 +1462,16 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel }) {
             ))}
           </select>
         </div>
+        <div>
+          <label className="label">Amount currency</label>
+          <select className="field" value={amountCurrency} onChange={(e) => setAmountCurrency(e.target.value)}>
+            <option>Local</option>
+            <option>KRW</option>
+          </select>
+        </div>
+      </div>
+      <div className="mt-4 rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
+        Enter all monthly goal values in {targetCurrencyLabel}. Values are saved as local targets and converted to KRW using the selected team's KRW rate.
       </div>
       <div className="mt-5 overflow-x-auto">
         <table className="min-w-full border-separate border-spacing-0">
@@ -1437,6 +1481,7 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel }) {
               {CATEGORIES.map((category) => (
                 <th key={category} className="px-3 py-3">
                   {category}
+                  <div className="text-xs font-semibold normal-case text-slate-400">{targetCurrencyLabel}</div>
                 </th>
               ))}
             </tr>
@@ -1973,7 +2018,7 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
             { header: "Rep", render: (row) => row.repName },
             { header: "Category", render: (row) => row.category },
             { header: "Goal Type", render: (row) => row.goalType },
-            { header: "Target Amount", render: (row) => formatMoney(row.targetAmount, getTeam(data.teams, row.teamId)?.currency) },
+            { header: "Target Local", render: (row) => formatMoney(row.targetAmount, getTeam(data.teams, row.teamId)?.currency) },
             { header: "Target KRW", render: (row) => formatMoney(toKrw(row.targetAmount, getTeam(data.teams, row.teamId)), "KRW") },
             {
               header: "Achievement",
