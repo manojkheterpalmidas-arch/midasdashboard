@@ -1266,6 +1266,243 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
   );
 }
 
+function BulkDealForm({ teams, selectedYear, selectedMonth, onSave, onCancel, saving = false }) {
+  const firstTeam = teams[0];
+  const [teamId, setTeamId] = useState(firstTeam?.id || "");
+  const [repName, setRepName] = useState(firstTeam?.reps?.[0] || "");
+  const [year, setYear] = useState(selectedYear);
+  const [month, setMonth] = useState(selectedMonth);
+  const [defaultCategory, setDefaultCategory] = useState("MODS");
+  const [dealType, setDealType] = useState("Other");
+  const [status, setStatus] = useState("Open");
+  const [temperature, setTemperature] = useState("Medium");
+  const [probability, setProbability] = useState(60);
+  const [amountCurrency, setAmountCurrency] = useState("Local");
+  const [defaultProduct, setDefaultProduct] = useState("");
+  const [rows, setRows] = useState(() =>
+    Array.from({ length: 12 }, () => ({ companyName: "", amount: "", maxAmount: "", product: "", category: "", comments: "" }))
+  );
+  const team = getTeam(teams, teamId);
+  const amountCurrencyLabel = amountCurrency === "KRW" ? "KRW" : team?.currency || "Local";
+  const fields = ["companyName", "amount", "maxAmount", "product", "category", "comments"];
+
+  function updateRow(index, field, value) {
+    setRows((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row)));
+  }
+
+  function cleanPastedValue(value) {
+    return String(value || "").trim();
+  }
+
+  function cleanAmount(value) {
+    return String(value || "")
+      .trim()
+      .replace(/[₩£€$,\s]/g, "");
+  }
+
+  function pasteRows(startIndex, startField, event) {
+    const text = event.clipboardData?.getData("text/plain");
+    if (!text) return;
+    const pastedRows = text
+      .replace(/\r/g, "")
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) => line.split("\t").map(cleanPastedValue));
+    if (!pastedRows.length) return;
+
+    event.preventDefault();
+    const startFieldIndex = fields.indexOf(startField);
+    setRows((current) => {
+      const next = current.map((row) => ({ ...row }));
+      pastedRows.forEach((pastedRow, rowOffset) => {
+        const rowIndex = startIndex + rowOffset;
+        if (!next[rowIndex]) next[rowIndex] = { companyName: "", amount: "", maxAmount: "", product: "", category: "", comments: "" };
+        pastedRow.forEach((value, columnOffset) => {
+          const field = fields[startFieldIndex + columnOffset];
+          if (!field) return;
+          next[rowIndex][field] = field === "amount" || field === "maxAmount" ? cleanAmount(value) : value;
+        });
+      });
+      return next;
+    });
+  }
+
+  function addRows() {
+    setRows((current) => [...current, ...Array.from({ length: 5 }, () => ({ companyName: "", amount: "", maxAmount: "", product: "", category: "", comments: "" }))]);
+  }
+
+  function submit(event) {
+    event.preventDefault();
+    const deals = rows
+      .filter((row) => row.companyName.trim() && row.amount !== "")
+      .map((row) => {
+        const localAmount = goalInputToLocalAmount(row.amount, amountCurrency, team);
+        const localMax = row.maxAmount === "" ? localAmount : goalInputToLocalAmount(row.maxAmount, amountCurrency, team);
+        const category = CATEGORIES.includes(row.category) ? row.category : defaultCategory;
+        return {
+          id: createId("deal"),
+          teamId,
+          repName,
+          year: num(year),
+          month: num(month),
+          companyName: row.companyName.trim(),
+          product: row.product.trim() || defaultProduct.trim() || "Bulk deal",
+          category,
+          dealType,
+          minAmount: status === "Closed" ? 0 : localAmount,
+          maxAmount: localMax,
+          probability: status === "Closed" ? 100 : num(probability),
+          temperature,
+          status,
+          closedAmount: status === "Closed" ? localMax : 0,
+          expectedCloseDate: "",
+          comments: row.comments,
+          nextAction: ""
+        };
+      });
+    onSave(deals);
+  }
+
+  return (
+    <form onSubmit={submit}>
+      <div className="grid gap-4 md:grid-cols-4">
+        <div>
+          <label className="label">Team</label>
+          <select
+            className="field"
+            value={teamId}
+            onChange={(e) => {
+              setTeamId(e.target.value);
+              setRepName(getTeam(teams, e.target.value)?.reps?.[0] || "");
+            }}
+          >
+            {teams.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.teamName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Rep</label>
+          <select className="field" value={repName} onChange={(e) => setRepName(e.target.value)}>
+            {(team?.reps || []).map((rep) => (
+              <option key={rep}>{rep}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Year</label>
+          <select className="field" value={year} onChange={(e) => setYear(e.target.value)}>
+            {YEARS.map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Month</label>
+          <select className="field" value={month} onChange={(e) => setMonth(e.target.value)}>
+            {MONTHS.map((item, index) => (
+              <option key={item} value={index + 1}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Default category</label>
+          <select className="field" value={defaultCategory} onChange={(e) => setDefaultCategory(e.target.value)}>
+            {CATEGORIES.map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Deal type</label>
+          <select className="field" value={dealType} onChange={(e) => setDealType(e.target.value)}>
+            {DEAL_TYPES.map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Status</label>
+          <select className="field" value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option>Open</option>
+            <option>Closed</option>
+            <option>Long-Term</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Amount currency</label>
+          <select className="field" value={amountCurrency} onChange={(e) => setAmountCurrency(e.target.value)}>
+            <option>Local</option>
+            <option>KRW</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Default product</label>
+          <input className="field" value={defaultProduct} onChange={(e) => setDefaultProduct(e.target.value)} placeholder="Optional" />
+        </div>
+        <div>
+          <label className="label">Probability %</label>
+          <input type="number" min="0" max="100" className="field" value={probability} onChange={(e) => setProbability(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Temperature</label>
+          <select className="field" value={temperature} onChange={(e) => setTemperature(e.target.value)}>
+            {TEMPERATURES.map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="mt-4 rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
+        Company and Amount are the main fields. Paste from Excel using columns: Company, Amount, Max Amount, Product, Category, Comments. Amounts are in {amountCurrencyLabel}.
+      </div>
+      <div className="mt-5 overflow-x-auto">
+        <table className="min-w-full border-separate border-spacing-0">
+          <thead>
+            <tr className="table-head">
+              <th className="px-3 py-3">Company</th>
+              <th className="px-3 py-3">Amount<div className="text-xs font-semibold normal-case text-slate-400">{amountCurrencyLabel}</div></th>
+              <th className="px-3 py-3">Max Amount<div className="text-xs font-semibold normal-case text-slate-400">Optional</div></th>
+              <th className="px-3 py-3">Product</th>
+              <th className="px-3 py-3">Category</th>
+              <th className="px-3 py-3">Comments</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={index}>
+                {fields.map((field) => (
+                  <td key={field} className="table-cell">
+                    <input
+                      type={field === "amount" || field === "maxAmount" ? "number" : "text"}
+                      min={field === "amount" || field === "maxAmount" ? "0" : undefined}
+                      step={field === "amount" || field === "maxAmount" ? "any" : undefined}
+                      className="field min-w-40"
+                      value={row[field]}
+                      onChange={(e) => updateRow(index, field, e.target.value)}
+                      onPaste={(e) => pasteRows(index, field, e)}
+                      placeholder={field === "category" ? defaultCategory : ""}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button type="button" className="btn-secondary mt-3" onClick={addRows} disabled={saving}>
+        Add 5 rows
+      </button>
+      {saving ? <div className="mt-4 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">Saving bulk deals to Google Sheets...</div> : null}
+      <FormActions onCancel={onCancel} submitLabel={saving ? "Saving..." : "Save bulk deals"} disabled={saving} />
+    </form>
+  );
+}
+
 function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, onSave, onCancel, saving = false }) {
   const firstTeam = teams[0];
   const [form, setForm] = useState(
@@ -1982,6 +2219,8 @@ function TeamsPage({ data, refreshData }) {
 
 function DealsPage({ data, refreshData, selectedYear, selectedMonth }) {
   const [editing, setEditing] = useState(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [savingBulk, setSavingBulk] = useState(false);
   const [filters, setFilters] = useState({
     year: selectedYear,
     month: selectedMonth,
@@ -2001,6 +2240,21 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth }) {
     else await api.createDeal(deal);
     await refreshData();
     setEditing(null);
+  }
+
+  async function saveBulkDeals(rows) {
+    if (!rows.length) {
+      alert("Enter at least one company and amount before saving.");
+      return;
+    }
+    setSavingBulk(true);
+    try {
+      await api.createDealsBulk(rows);
+      await refreshData();
+      setBulkOpen(false);
+    } finally {
+      setSavingBulk(false);
+    }
   }
 
   async function deleteDeal(dealId) {
@@ -2028,9 +2282,14 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth }) {
           <h2 className="section-title">Deals</h2>
           <p className="text-sm text-slate-500">Source of Min/Max forecast and closed achievement.</p>
         </div>
-        <button className="btn-primary" onClick={() => setEditing({})}>
-          Add Deal
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn-secondary" onClick={() => setBulkOpen(true)}>
+            Bulk add deals
+          </button>
+          <button className="btn-primary" onClick={() => setEditing({})}>
+            Add Deal
+          </button>
+        </div>
       </div>
       <div className="panel p-4">
         <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">
@@ -2148,6 +2407,18 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth }) {
             selectedMonth={selectedMonth}
             onSave={saveDeal}
             onCancel={() => setEditing(null)}
+          />
+        </Modal>
+      ) : null}
+      {bulkOpen ? (
+        <Modal title="Bulk Add Deals" onClose={() => setBulkOpen(false)}>
+          <BulkDealForm
+            teams={data.teams}
+            selectedYear={selectedYear}
+            selectedMonth={selectedMonth}
+            onSave={saveBulkDeals}
+            onCancel={() => setBulkOpen(false)}
+            saving={savingBulk}
           />
         </Modal>
       ) : null}
