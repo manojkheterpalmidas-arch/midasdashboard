@@ -1006,13 +1006,13 @@ function ImportPreviewModal({ preview, type, onCancel, onConfirm, importing }) {
   );
 }
 
-function FormActions({ onCancel, submitLabel }) {
+function FormActions({ onCancel, submitLabel, disabled = false }) {
   return (
     <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-midas-line pt-4">
-      <button type="button" className="btn-secondary" onClick={onCancel}>
+      <button type="button" className="btn-secondary" onClick={onCancel} disabled={disabled}>
         Cancel
       </button>
-      <button type="submit" className="btn-primary">
+      <button type="submit" className="btn-primary" disabled={disabled}>
         {submitLabel}
       </button>
     </div>
@@ -1264,7 +1264,7 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
   );
 }
 
-function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, onSave, onCancel }) {
+function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, onSave, onCancel, saving = false }) {
   const firstTeam = teams[0];
   const [form, setForm] = useState(
     initialGoal || {
@@ -1378,12 +1378,13 @@ function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, o
           This goal will be saved as {formatMoney(localTargetAmount, selectedTeam?.currency || "Local")} local target and shown as {formatMoney(toKrw(localTargetAmount, selectedTeam), "KRW")} in KRW reports.
         </div>
       </div>
-      <FormActions onCancel={onCancel} submitLabel={initialGoal ? "Save goal" : "Add goal"} />
+      {saving ? <div className="mt-4 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">Saving goal to Google Sheets...</div> : null}
+      <FormActions onCancel={onCancel} submitLabel={saving ? "Saving..." : initialGoal ? "Save goal" : "Add goal"} disabled={saving} />
     </form>
   );
 }
 
-function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel }) {
+function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel, saving = false }) {
   const firstTeam = teams[0];
   const [teamId, setTeamId] = useState(firstTeam?.id || "");
   const [repName, setRepName] = useState(firstTeam?.reps?.[0] || "");
@@ -1403,6 +1404,8 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel }) {
     const rows = [];
     for (let month = 1; month <= 12; month += 1) {
       CATEGORIES.forEach((category) => {
+        const rawAmount = grid[`${month}-${category}`];
+        if (rawAmount === "" || rawAmount === undefined || rawAmount === null) return;
         rows.push({
           id: createId("goal"),
           teamId,
@@ -1506,7 +1509,8 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel }) {
           </tbody>
         </table>
       </div>
-      <FormActions onCancel={onCancel} submitLabel="Save monthly goals" />
+      {saving ? <div className="mt-4 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">Saving monthly goals to Google Sheets...</div> : null}
+      <FormActions onCancel={onCancel} submitLabel={saving ? "Saving..." : "Save monthly goals"} disabled={saving} />
     </form>
   );
 }
@@ -1950,18 +1954,34 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
   const [year, setYear] = useState(selectedYear);
   const [editing, setEditing] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [savingGoal, setSavingGoal] = useState(false);
+  const [savingBulk, setSavingBulk] = useState(false);
 
   async function saveGoal(goal) {
-    if (data.goals.some((item) => item.id === goal.id)) await api.updateGoal(goal.id, goal);
-    else await api.createGoal(goal);
-    await refreshData();
-    setEditing(null);
+    setSavingGoal(true);
+    try {
+      if (data.goals.some((item) => item.id === goal.id)) await api.updateGoal(goal.id, goal);
+      else await api.createGoal(goal);
+      await refreshData();
+      setEditing(null);
+    } finally {
+      setSavingGoal(false);
+    }
   }
 
   async function saveBulk(rows) {
-    await Promise.all(rows.map((goal) => api.createGoal(goal)));
-    await refreshData();
-    setBulkOpen(false);
+    if (!rows.length) {
+      alert("Enter at least one monthly goal amount before saving.");
+      return;
+    }
+    setSavingBulk(true);
+    try {
+      await api.createGoalsBulk(rows);
+      await refreshData();
+      setBulkOpen(false);
+    } finally {
+      setSavingBulk(false);
+    }
   }
 
   async function deleteGoal(goalId) {
@@ -2106,6 +2126,7 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
             goalType={goalType}
             onSave={saveGoal}
             onCancel={() => setEditing(null)}
+            saving={savingGoal}
           />
         </Modal>
       ) : null}
@@ -2117,6 +2138,7 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
             goalType={goalType}
             onSave={saveBulk}
             onCancel={() => setBulkOpen(false)}
+            saving={savingBulk}
           />
         </Modal>
       ) : null}

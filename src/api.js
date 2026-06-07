@@ -57,6 +57,10 @@ function cleanGoal(goal) {
   };
 }
 
+function goalKey(goal) {
+  return [goal.teamId, goal.repName, goal.year, goal.month, goal.category, goal.goalType].map((part) => String(part || "").toLowerCase()).join("|");
+}
+
 function emptyPreview() {
   return {
     validRows: [],
@@ -275,6 +279,31 @@ export const api = {
   getGoals: async () => (await readAllData()).goals,
   createGoal: async (goal) => upsertRow("MonthlyGoals", cleanGoal(goal), "Goal created"),
   updateGoal: async (id, goal) => upsertRow("MonthlyGoals", cleanGoal({ ...goal, id }), "Goal updated"),
+  createGoalsBulk: async (goals) => {
+    const existingRows = await readSheet("MonthlyGoals");
+    const timestamp = nowIso();
+    let added = 0;
+    let updated = 0;
+    const nextRows = [...existingRows];
+    const indexByKey = new Map(existingRows.map((goal, index) => [goalKey(goal), index]));
+
+    goals.map(cleanGoal).forEach((goal) => {
+      const key = goalKey(goal);
+      const existingIndex = indexByKey.get(key);
+      if (existingIndex >= 0) {
+        nextRows[existingIndex] = { ...nextRows[existingIndex], ...goal, id: nextRows[existingIndex].id || goal.id || createId("goal"), updatedAt: timestamp };
+        updated += 1;
+      } else {
+        indexByKey.set(key, nextRows.length);
+        nextRows.push({ ...goal, id: goal.id || createId("goal"), createdAt: goal.createdAt || timestamp, updatedAt: timestamp });
+        added += 1;
+      }
+    });
+
+    await writeSheet("MonthlyGoals", nextRows);
+    await audit("Bulk monthly goals saved", "MonthlyGoals", "bulk", { added, updated });
+    return { added, updated };
+  },
   deleteGoal: async (id) => deleteRow("MonthlyGoals", id, "Goal deleted"),
 
   exportJson: () => readAllData(),
