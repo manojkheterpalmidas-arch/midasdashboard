@@ -806,6 +806,8 @@ function Header({
   onExportJson,
   onImportJson,
   onBackup,
+  onRefresh,
+  refreshing = false,
   isManager = true,
   access,
   availableTabs = TABS
@@ -896,6 +898,9 @@ function Header({
               <input className="field" value={preparedBy} onChange={(e) => setPreparedBy(e.target.value)} />
             </div>
           </div>
+          <button className="btn-secondary mt-3 w-full" onClick={onRefresh} disabled={refreshing}>
+            {refreshing ? "Refreshing..." : "Refresh from Google Sheets"}
+          </button>
         </div>
 
         {isManager ? (
@@ -3453,6 +3458,8 @@ export default function App() {
   const [appError, setAppError] = useState("");
   const [importJob, setImportJob] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [refreshingSheets, setRefreshingSheets] = useState(false);
 
   useEffect(() => {
     async function boot() {
@@ -3466,7 +3473,7 @@ export default function App() {
           return;
         }
         setAuthenticated(true);
-        await refreshData();
+        await refreshData(true);
       } catch (error) {
         setAppError(error.message || "Could not connect to the local server.");
       } finally {
@@ -3476,9 +3483,10 @@ export default function App() {
     boot();
   }, []);
 
-  async function refreshData() {
+  async function refreshData(force = false) {
     try {
-      const nextData = await api.readAllData();
+      const cachedData = !force ? api.getCachedData() : null;
+      const nextData = cachedData || (await api.readAllData());
       setData((current) => ({
         ...current,
         teams: nextData.teams,
@@ -3490,6 +3498,7 @@ export default function App() {
         lastUpdated: new Date().toISOString()
       }));
       setAuthenticated(true);
+      setDataLoaded(true);
       setAppError("");
     } catch (error) {
       if (error.status === 401) {
@@ -3497,7 +3506,17 @@ export default function App() {
         setAuthenticated(false);
       } else {
         setAppError(error.message || "Could not load backend data.");
+        setDataLoaded(true);
       }
+    }
+  }
+
+  async function manualRefreshData() {
+    setRefreshingSheets(true);
+    try {
+      await refreshData(true);
+    } finally {
+      setRefreshingSheets(false);
     }
   }
 
@@ -3630,6 +3649,17 @@ export default function App() {
     return <PasswordGate onLogin={refreshData} />;
   }
 
+  if (!dataLoaded) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
+        <div className="panel max-w-lg p-5 text-sm font-bold text-slate-600">
+          {appError ? <div className="mb-3 rounded-md bg-red-50 px-4 py-3 text-red-700">{appError}</div> : null}
+          Loading data from Google Sheets...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100">
       <div className="min-w-0">
@@ -3654,6 +3684,8 @@ export default function App() {
           onExportJson={exportJson}
           onImportJson={importJson}
           onBackup={createServerBackup}
+          onRefresh={manualRefreshData}
+          refreshing={refreshingSheets}
           isManager={isManager}
           access={access}
           availableTabs={availableTabs}

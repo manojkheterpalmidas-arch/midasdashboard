@@ -1,25 +1,24 @@
 import {
-  audit,
   createDatabaseSpreadsheet,
   consumeRedirectToken,
   deleteRow,
+  getCachedData,
   getSpreadsheetId,
   getUserEmail,
   hasGoogleConfig,
   isSignedIn,
   readAllData,
-  readSheet,
   replaceSheetData,
   redirectSignIn,
   setSpreadsheetId,
   signIn,
   signOut,
   updateSettings,
-  upsertRow,
-  writeSheet
+  upsertRows,
+  upsertRow
 } from "./api/googleSheets.js";
 import { downloadText, parseCsvFile, toCsv } from "./utils/csv.js";
-import { createId, nowIso } from "./utils/ids.js";
+import { createId } from "./utils/ids.js";
 import { monthToNumber, toNumber } from "./utils/calculations.js";
 
 const CATEGORIES = ["MODS", "Non-MODS", "New Sales"];
@@ -52,6 +51,10 @@ function dealKey(deal) {
   return [deal.teamId, deal.repName, deal.year, deal.month, deal.companyName, deal.product, deal.category, deal.dealType]
     .map((part) => String(part || "").toLowerCase())
     .join("|");
+}
+
+function teamKey(team) {
+  return String(team.teamName || "").toLowerCase();
 }
 
 function cleanGoal(goal) {
@@ -280,88 +283,41 @@ export const api = {
   getSpreadsheetId,
   setSpreadsheetId,
   getUserEmail,
+  getCachedData,
   readAllData,
 
-  getTeams: async () => (await readAllData()).teams,
+  getTeams: async () => (getCachedData()?.teams || (await readAllData()).teams),
   createTeam: async (team) => upsertRow("Teams", teamToSheet(team), "Team created"),
   updateTeam: async (id, team) => upsertRow("Teams", teamToSheet({ ...team, id }), "Team updated"),
   deleteTeam: async (id) => deleteRow("Teams", id, "Team deleted"),
 
-  getDeals: async () => (await readAllData()).deals,
+  getDeals: async () => (getCachedData()?.deals || (await readAllData()).deals),
   createDeal: async (deal) => upsertRow("Deals", cleanDeal(deal), "Deal created"),
   updateDeal: async (id, deal) => upsertRow("Deals", cleanDeal({ ...deal, id }), "Deal updated"),
-  createDealsBulk: async (deals) => {
-    const existingRows = await readSheet("Deals");
-    const timestamp = nowIso();
-    let added = 0;
-    let updated = 0;
-    const nextRows = [...existingRows];
-    const indexByKey = new Map(existingRows.map((deal, index) => [dealKey(deal), index]));
-
-    deals.map(cleanDeal).forEach((deal) => {
-      const key = dealKey(deal);
-      const existingIndex = indexByKey.get(key);
-      if (existingIndex >= 0) {
-        nextRows[existingIndex] = { ...nextRows[existingIndex], ...deal, id: nextRows[existingIndex].id || deal.id || createId("deal"), updatedAt: timestamp };
-        updated += 1;
-      } else {
-        indexByKey.set(key, nextRows.length);
-        nextRows.push({ ...deal, id: deal.id || createId("deal"), createdAt: deal.createdAt || timestamp, updatedAt: timestamp });
-        added += 1;
-      }
-    });
-
-    await writeSheet("Deals", nextRows);
-    await audit("Bulk closed achievements saved", "Deals", "bulk-achievements", { added, updated });
-    return { added, updated };
-  },
+  createDealsBulk: async (deals) => upsertRows("Deals", deals.map(cleanDeal), dealKey, "Bulk deals saved"),
   deleteDeal: async (id) => deleteRow("Deals", id, "Deal deleted"),
 
-  getGoals: async () => (await readAllData()).goals,
+  getGoals: async () => (getCachedData()?.goals || (await readAllData()).goals),
   createGoal: async (goal) => upsertRow("MonthlyGoals", cleanGoal(goal), "Goal created"),
   updateGoal: async (id, goal) => upsertRow("MonthlyGoals", cleanGoal({ ...goal, id }), "Goal updated"),
-  createGoalsBulk: async (goals) => {
-    const existingRows = await readSheet("MonthlyGoals");
-    const timestamp = nowIso();
-    let added = 0;
-    let updated = 0;
-    const nextRows = [...existingRows];
-    const indexByKey = new Map(existingRows.map((goal, index) => [goalKey(goal), index]));
-
-    goals.map(cleanGoal).forEach((goal) => {
-      const key = goalKey(goal);
-      const existingIndex = indexByKey.get(key);
-      if (existingIndex >= 0) {
-        nextRows[existingIndex] = { ...nextRows[existingIndex], ...goal, id: nextRows[existingIndex].id || goal.id || createId("goal"), updatedAt: timestamp };
-        updated += 1;
-      } else {
-        indexByKey.set(key, nextRows.length);
-        nextRows.push({ ...goal, id: goal.id || createId("goal"), createdAt: goal.createdAt || timestamp, updatedAt: timestamp });
-        added += 1;
-      }
-    });
-
-    await writeSheet("MonthlyGoals", nextRows);
-    await audit("Bulk monthly goals saved", "MonthlyGoals", "bulk", { added, updated });
-    return { added, updated };
-  },
+  createGoalsBulk: async (goals) => upsertRows("MonthlyGoals", goals.map(cleanGoal), goalKey, "Bulk monthly goals saved"),
   deleteGoal: async (id) => deleteRow("MonthlyGoals", id, "Goal deleted"),
 
-  getRoles: async () => (await readAllData()).roles,
+  getRoles: async () => (getCachedData()?.roles || (await readAllData()).roles),
   createRole: async (role) => upsertRow("UserRoles", cleanRole(role), "User role created"),
   updateRole: async (id, role) => upsertRow("UserRoles", cleanRole({ ...role, id }), "User role updated"),
   deleteRole: async (id) => deleteRow("UserRoles", id, "User role deleted"),
 
-  exportJson: () => readAllData(),
+  exportJson: async () => getCachedData() || readAllData(),
   importJson: (data) => replaceSheetData(data),
   createBackup: async () => {
-    const data = await readAllData();
+    const data = getCachedData() || (await readAllData());
     downloadText(`midas-sales-full-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data, null, 2), "application/json");
     return { filename: "Downloaded JSON backup" };
   },
 
   exportCsv: async (type) => {
-    const data = await readAllData();
+    const data = getCachedData() || (await readAllData());
     if (type === "teams") {
       const rows = data.teams.map((team) => ({ ...team, reps: team.reps.join(", ") }));
       downloadText("midas-teams.csv", toCsv(rows, ["id", "teamName", "teamLead", "region", "currency", "krwRate", "reps"]), "text/csv;charset=utf-8");
@@ -388,16 +344,13 @@ export const api = {
     const preview = await api.previewCsv(type, file);
     if (preview.errorRows.length) throw new Error("CSV contains validation errors.");
     if (type === "teams") {
-      for (const row of preview.validRows) await api.updateTeam(row.data.id, row.data);
-      await audit("CSV imported", "Teams", "csv", preview.summary);
+      await upsertRows("Teams", preview.validRows.map((row) => teamToSheet(row.data)), teamKey, "Teams CSV imported");
     }
     if (type === "deals") {
-      for (const row of preview.validRows) await api.updateDeal(row.data.id, row.data);
-      await audit("CSV imported", "Deals", "csv", preview.summary);
+      await api.createDealsBulk(preview.validRows.map((row) => row.data));
     }
     if (type === "goals") {
-      for (const row of preview.validRows) await api.updateGoal(row.data.id, row.data);
-      await audit("CSV imported", "MonthlyGoals", "csv", preview.summary);
+      await api.createGoalsBulk(preview.validRows.map((row) => row.data));
     }
     return { ok: true, summary: preview.summary };
   },
