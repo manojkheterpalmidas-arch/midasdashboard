@@ -2259,7 +2259,8 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
               { header: "Target", render: (row) => formatMoney(row.target, "KRW") },
               { header: "Achievement + Min", render: (row) => formatMoney(row.achievementMin, "KRW") },
               { header: "Achievement + Max", render: (row) => formatMoney(row.achievementMax, "KRW") },
-              { header: "Coverage", render: (row) => formatPercent(row.maxCoverage) },
+              { header: "Min Coverage", render: (row) => formatPercent(row.minCoverage) },
+              { header: "Max Coverage", render: (row) => formatPercent(row.maxCoverage) },
               {
                 header: "Status",
                 render: (row) => (
