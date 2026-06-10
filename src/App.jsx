@@ -3000,7 +3000,8 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
         <KpiCard label="Achievement + Max" value={formatMoney(metrics.achievementMax, currency)} tone={metrics.gapMax >= 0 ? "green" : "amber"} />
         <KpiCard label="Gap Using Min" value={formatMoney(metrics.gapMin, currency)} tone={metrics.gapMin >= 0 ? "green" : "red"} />
         <KpiCard label="Gap Using Max" value={formatMoney(metrics.gapMax, currency)} tone={metrics.gapMax >= 0 ? "green" : "red"} />
-        <KpiCard label="Coverage %" value={formatPercent(metrics.maxCoverage)} tone={metrics.maxCoverage >= 1 ? "green" : "amber"} />
+        <KpiCard label="Min Coverage %" value={formatPercent(metrics.minCoverage)} tone={metrics.minCoverage >= 1 ? "green" : "amber"} />
+        <KpiCard label="Max Coverage %" value={formatPercent(metrics.maxCoverage)} tone={metrics.maxCoverage >= 1 ? "green" : "amber"} />
       </div>
       {CATEGORIES.map((category) => (
         <ForecastTable
