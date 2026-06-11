@@ -3127,8 +3127,10 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
 
 function IndividualPerformancePage({ data }) {
   const [goalType, setGoalType] = useStoredState("midas-individual-performance-goal-type", "Responsibility Goal");
-  const targetTeamNames = new Set(["uk", "uk team", "ee1", "ee2", "france"]);
-  const includedTeams = data.teams.filter((team) => targetTeamNames.has(String(team.teamName || "").trim().toLowerCase()));
+  const includedTeams = data.teams.filter((team) => {
+    const name = String(team.teamName || "").trim().toLowerCase();
+    return name === "uk" || name.includes("uk team") || name === "ee1" || name === "ee2" || name.includes("france");
+  });
   const teamIds = includedTeams.map((team) => team.id);
   const today = new Date();
   const currentYear = today.getFullYear();
@@ -3177,8 +3179,7 @@ function IndividualPerformancePage({ data }) {
         remainingPercent: metrics.target > 0 ? remaining / metrics.target : 0
       };
     })
-    .filter((row) => row.target > 0 || row.closed > 0)
-    .sort((a, b) => b.achievedPercent - a.achievedPercent || b.closed - a.closed);
+    .sort((a, b) => b.achievedPercent - a.achievedPercent || b.closed - a.closed || a.repName.localeCompare(b.repName));
 
   return (
     <div className="space-y-5">
@@ -3204,6 +3205,7 @@ function IndividualPerformancePage({ data }) {
             { name: "Achieved", value: row.closed, color: "#16825d" },
             { name: "Remaining", value: row.remaining, color: "#c24136" }
           ].filter((item) => item.value > 0);
+          if (!pieData.length) pieData.push({ name: "No goal set", value: 1, color: "#cbd5e1" });
           return (
             <div key={row.id} className="panel p-4">
               <div className="mb-3 flex items-start justify-between gap-3">
@@ -3250,7 +3252,7 @@ function IndividualPerformancePage({ data }) {
       </div>
       {!rows.length ? (
         <div className="panel p-5 text-sm font-semibold text-slate-500">
-          No rep goals or closed achievement found for UK, EE1, EE2, or France in the selected period.
+          No reps found in UK, EE1, EE2, or France teams.
         </div>
       ) : null}
     </div>
