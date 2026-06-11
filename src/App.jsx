@@ -3125,24 +3125,23 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
   );
 }
 
-function IndividualPerformancePage({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear }) {
+function IndividualPerformancePage({ data }) {
   const [goalType, setGoalType] = useStoredState("midas-individual-performance-goal-type", "Responsibility Goal");
   const targetTeamNames = new Set(["uk", "uk team", "ee1", "ee2", "france"]);
   const includedTeams = data.teams.filter((team) => targetTeamNames.has(String(team.teamName || "").trim().toLowerCase()));
   const teamIds = includedTeams.map((team) => team.id);
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentHalfYear = today.getMonth() < 6 ? 1 : 2;
   const label = periodLabel({
-    year: selectedYear,
-    periodType: selectedPeriodType,
-    month: selectedMonth,
-    quarter: selectedQuarter,
-    halfYear: selectedHalfYear
+    year: currentYear,
+    periodType: "Half-Yearly",
+    halfYear: currentHalfYear
   });
   const baseScope = periodScope({
-    year: selectedYear,
-    periodType: selectedPeriodType,
-    month: selectedMonth,
-    quarter: selectedQuarter,
-    halfYear: selectedHalfYear,
+    year: currentYear,
+    periodType: "Half-Yearly",
+    halfYear: currentHalfYear,
     teamIds
   });
   const reps = Array.from(
@@ -3781,14 +3780,7 @@ export default function App() {
       />
     ),
     "Individual Performance": (
-      <IndividualPerformancePage
-        data={scopedData}
-        selectedYear={selectedYear}
-        selectedMonth={selectedMonth}
-        selectedPeriodType={selectedPeriodType}
-        selectedQuarter={selectedQuarter}
-        selectedHalfYear={selectedHalfYear}
-      />
+      <IndividualPerformancePage data={scopedData} />
     ),
     Summary: (
       <SummaryPage
