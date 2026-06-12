@@ -664,6 +664,27 @@ function toKrw(amount, team) {
   return num(amount) * num(team?.krwRate || 0);
 }
 
+function eurReferenceRate(teams) {
+  const ee1 = teams.find((team) => String(team.teamName || "").trim().toLowerCase() === "ee1");
+  const eurTeam = ee1 || teams.find((team) => String(team.currency || "").toUpperCase() === "EUR");
+  return num(eurTeam?.krwRate) || 1;
+}
+
+function metricsToEur(metrics, eurRate) {
+  const convert = (value) => (eurRate > 0 ? num(value) / eurRate : 0);
+  return {
+    ...metrics,
+    target: convert(metrics.target),
+    closed: convert(metrics.closed),
+    min: convert(metrics.min),
+    max: convert(metrics.max),
+    achievementMin: convert(metrics.achievementMin),
+    achievementMax: convert(metrics.achievementMax),
+    gapMin: convert(metrics.gapMin),
+    gapMax: convert(metrics.gapMax)
+  };
+}
+
 function dealClosedAmount(deal) {
   return num(deal.closedAmount) || num(deal.maxAmount);
 }
@@ -3134,6 +3155,7 @@ function IndividualPerformancePage({ data }) {
   const [goalType, setGoalType] = useStoredState("midas-individual-performance-goal-type", "Responsibility Goal");
   const includedTeams = data.teams.filter(isPerformanceTeam);
   const teamIds = includedTeams.map((team) => team.id);
+  const eurRate = eurReferenceRate(data.teams);
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentHalfYear = today.getMonth() < 6 ? 1 : 2;
@@ -3162,14 +3184,14 @@ function IndividualPerformancePage({ data }) {
 
   const rows = reps
     .map((rep) => {
-      const metrics = calculateMetrics({
+      const metrics = metricsToEur(calculateMetrics({
         teams: data.teams,
         deals: data.deals,
         goals: data.goals,
         goalType,
         useKrw: true,
         scope: { ...baseScope, repName: rep.repName }
-      });
+      }), eurRate);
       const achievedPercent = metrics.target > 0 ? metrics.closed / metrics.target : 0;
       const remaining = Math.max(metrics.target - metrics.closed, 0);
       return {
@@ -3189,7 +3211,7 @@ function IndividualPerformancePage({ data }) {
         <div>
           <h2 className="section-title">Individual Performance</h2>
           <p className="text-sm text-slate-500">
-            Big-screen rep ranking for {label}, covering UK, EE1, EE2, and France only. Values shown in KRW.
+            Big-screen rep ranking for {label}, covering UK, EE1, EE2, and France only. Values shown in EUR using EE1's EUR rate.
           </p>
         </div>
         <div className="w-full md:w-64">
@@ -3229,22 +3251,22 @@ function IndividualPerformancePage({ data }) {
                           <Cell key={entry.name} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(value) => formatChartMoney(value, "KRW")} />
+                      <Tooltip formatter={(value) => formatChartMoney(value, "EUR")} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
                 <div className="space-y-3">
                   <div>
                     <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Total Goal</div>
-                    <div className="text-xl font-extrabold text-midas-ink">{formatChartMoney(row.target, "KRW")}</div>
+                    <div className="text-xl font-extrabold text-midas-ink">{formatChartMoney(row.target, "EUR")}</div>
                   </div>
                   <div>
                     <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Achieved</div>
-                    <div className="text-xl font-extrabold text-green-700">{formatChartMoney(row.closed, "KRW")} ({formatPercent(row.achievedPercent)})</div>
+                    <div className="text-xl font-extrabold text-green-700">{formatChartMoney(row.closed, "EUR")} ({formatPercent(row.achievedPercent)})</div>
                   </div>
                   <div>
                     <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Remaining Target</div>
-                    <div className="text-xl font-extrabold text-red-700">{formatChartMoney(row.remaining, "KRW")} ({formatPercent(row.remainingPercent)})</div>
+                    <div className="text-xl font-extrabold text-red-700">{formatChartMoney(row.remaining, "EUR")} ({formatPercent(row.remainingPercent)})</div>
                   </div>
                 </div>
               </div>
@@ -3264,6 +3286,7 @@ function IndividualPerformancePage({ data }) {
 function TeamPerformancePage({ data }) {
   const [goalType, setGoalType] = useStoredState("midas-team-performance-goal-type", "Responsibility Goal");
   const includedTeams = data.teams.filter(isPerformanceTeam);
+  const eurRate = eurReferenceRate(data.teams);
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentHalfYear = today.getMonth() < 6 ? 1 : 2;
@@ -3280,26 +3303,26 @@ function TeamPerformancePage({ data }) {
 
   const rows = includedTeams
     .map((team) => {
-      const metrics = calculateMetrics({
+      const metrics = metricsToEur(calculateMetrics({
         teams: data.teams,
         deals: data.deals,
         goals: data.goals,
         goalType,
         useKrw: true,
         scope: { ...baseScope, teamId: team.id }
-      });
+      }), eurRate);
       const achievedPercent = metrics.target > 0 ? metrics.closed / metrics.target : 0;
       const remaining = Math.max(metrics.target - metrics.closed, 0);
       const reps = (team.reps || [])
         .map((repName) => {
-          const repMetrics = calculateMetrics({
+          const repMetrics = metricsToEur(calculateMetrics({
             teams: data.teams,
             deals: data.deals,
             goals: data.goals,
             goalType,
             useKrw: true,
             scope: { ...baseScope, teamId: team.id, repName }
-          });
+          }), eurRate);
           const repPercent = repMetrics.target > 0 ? repMetrics.closed / repMetrics.target : 0;
           return {
             id: `${team.id}-${repName}`,
@@ -3328,7 +3351,7 @@ function TeamPerformancePage({ data }) {
         <div>
           <h2 className="section-title">Team Performance</h2>
           <p className="text-sm text-slate-500">
-            Big-screen team ranking for {label}, covering UK, EE1, EE2, and France only. Teams are ranked by achieved percentage, with rep performance shown inside each team.
+            Big-screen team ranking for {label}, covering UK, EE1, EE2, and France only. Values shown in EUR using EE1's EUR rate.
           </p>
         </div>
         <div className="w-full md:w-64">
@@ -3368,7 +3391,7 @@ function TeamPerformancePage({ data }) {
                           <Cell key={entry.name} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(value) => formatChartMoney(value, "KRW")} />
+                      <Tooltip formatter={(value) => formatChartMoney(value, "EUR")} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -3376,15 +3399,15 @@ function TeamPerformancePage({ data }) {
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div>
                       <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Team Goal</div>
-                      <div className="text-lg font-extrabold text-midas-ink">{formatChartMoney(row.target, "KRW")}</div>
+                      <div className="text-lg font-extrabold text-midas-ink">{formatChartMoney(row.target, "EUR")}</div>
                     </div>
                     <div>
                       <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Achieved</div>
-                      <div className="text-lg font-extrabold text-green-700">{formatChartMoney(row.closed, "KRW")}</div>
+                      <div className="text-lg font-extrabold text-green-700">{formatChartMoney(row.closed, "EUR")}</div>
                     </div>
                     <div>
                       <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Remaining</div>
-                      <div className="text-lg font-extrabold text-red-700">{formatChartMoney(row.remaining, "KRW")}</div>
+                      <div className="text-lg font-extrabold text-red-700">{formatChartMoney(row.remaining, "EUR")}</div>
                     </div>
                   </div>
                   <div className="space-y-2 border-t border-midas-line pt-3">
@@ -3405,7 +3428,7 @@ function TeamPerformancePage({ data }) {
                             <div className={`h-full rounded-full ${barColor}`} style={{ width }} />
                           </div>
                           <div className="mt-1 text-xs font-semibold text-slate-500">
-                            {formatChartMoney(rep.closed, "KRW")} achieved / {formatChartMoney(rep.target, "KRW")} goal
+                            {formatChartMoney(rep.closed, "EUR")} achieved / {formatChartMoney(rep.target, "EUR")} goal
                           </div>
                         </div>
                       );
@@ -3436,7 +3459,8 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
   const [selectedTeamIds, setSelectedTeamIds] = useStoredState("midas-summary-team-ids", null);
   const [teamFilterOpen, setTeamFilterOpen] = useState(false);
   const useKrw = currencyView === "KRW";
-  const summaryCurrency = useKrw ? "KRW" : "GBP";
+  const displayCurrency = useKrw ? "KRW" : "EUR";
+  const eurRate = eurReferenceRate(data.teams);
   const allTeamIds = data.teams.map((team) => team.id);
   const activeTeamIds = selectedTeamIds ?? allTeamIds;
   const selectedTeams = data.teams.filter((team) => activeTeamIds.includes(team.id));
@@ -3448,14 +3472,15 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
         : "No teams selected";
   const baseScope = periodScope({ year, periodType, month, quarter, halfYear, teamIds: activeTeamIds });
   const label = periodLabel({ year, periodType, month, quarter, halfYear });
-  const metrics = calculateMetrics({
+  const metricsKrw = calculateMetrics({
     teams: data.teams,
     deals: data.deals,
     goals: data.goals,
     goalType,
-    useKrw,
+    useKrw: true,
     scope: baseScope
   });
+  const metrics = useKrw ? metricsKrw : metricsToEur(metricsKrw, eurRate);
 
   function toggleTeam(teamId) {
     setSelectedTeamIds((current) => {
@@ -3465,26 +3490,28 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
   }
 
   const teamRows = selectedTeams.map((team) => {
-    const itemMetrics = calculateMetrics({
+    const itemMetricsKrw = calculateMetrics({
       teams: data.teams,
       deals: data.deals,
       goals: data.goals,
       goalType,
-      useKrw,
+      useKrw: true,
       scope: { ...baseScope, teamId: team.id }
     });
+    const itemMetrics = useKrw ? itemMetricsKrw : metricsToEur(itemMetricsKrw, eurRate);
     return { id: team.id, team, ...itemMetrics, status: riskFor(itemMetrics) };
   });
 
   const categoryRows = CATEGORIES.map((category) => {
-    const itemMetrics = calculateMetrics({
+    const itemMetricsKrw = calculateMetrics({
       teams: data.teams,
       deals: data.deals,
       goals: data.goals,
       goalType,
-      useKrw,
+      useKrw: true,
       scope: { ...baseScope, category }
     });
+    const itemMetrics = useKrw ? itemMetricsKrw : metricsToEur(itemMetricsKrw, eurRate);
     return { id: category, category, ...itemMetrics };
   });
   categoryRows.push({ id: "Total", category: "Total", ...metrics });
@@ -3514,10 +3541,9 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
   }).filter((item) => item.value > 0);
 
   function money(value, team) {
-    if (useKrw) return formatMoney(value, "KRW");
-    return formatMoney(value, team?.currency || summaryCurrency);
+    return formatMoney(value, displayCurrency);
   }
-  const closedHelper = closedAchievementHelper(metrics, useKrw ? "KRW" : summaryCurrency);
+  const closedHelper = closedAchievementHelper(metrics, displayCurrency);
 
   return (
     <div className="space-y-5">
@@ -3585,9 +3611,9 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
           </div>
           <div>
             <label className="label">Currency view</label>
-            <select className="field" value={currencyView} onChange={(e) => setCurrencyView(e.target.value)}>
+            <select className="field" value={displayCurrency} onChange={(e) => setCurrencyView(e.target.value)}>
               <option>KRW</option>
-              <option>Local</option>
+              <option>EUR</option>
             </select>
           </div>
         </div>
@@ -3625,14 +3651,14 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <KpiCard label={`Total Target ${currencyView}`} value={money(metrics.target)} />
-        <KpiCard label={`Closed Achievement ${currencyView}`} value={money(metrics.closed)} tone="green" helper={closedHelper.text} helperTone={closedHelper.tone} />
-        <KpiCard label={`Min Forecast ${currencyView}`} value={money(metrics.min)} tone="blue" />
-        <KpiCard label={`Max Forecast ${currencyView}`} value={money(metrics.max)} tone="blue" />
-        <KpiCard label={`Achievement + Min ${currencyView}`} value={money(metrics.achievementMin)} tone={metrics.gapMin >= 0 ? "green" : "amber"} />
-        <KpiCard label={`Achievement + Max ${currencyView}`} value={money(metrics.achievementMax)} tone={metrics.gapMax >= 0 ? "green" : "amber"} />
-        <KpiCard label={`Gap Using Min ${currencyView}`} value={money(metrics.gapMin)} tone={metrics.gapMin >= 0 ? "green" : "red"} />
-        <KpiCard label={`Gap Using Max ${currencyView}`} value={money(metrics.gapMax)} tone={metrics.gapMax >= 0 ? "green" : "red"} />
+        <KpiCard label={`Total Target ${displayCurrency}`} value={money(metrics.target)} />
+        <KpiCard label={`Closed Achievement ${displayCurrency}`} value={money(metrics.closed)} tone="green" helper={closedHelper.text} helperTone={closedHelper.tone} />
+        <KpiCard label={`Min Forecast ${displayCurrency}`} value={money(metrics.min)} tone="blue" />
+        <KpiCard label={`Max Forecast ${displayCurrency}`} value={money(metrics.max)} tone="blue" />
+        <KpiCard label={`Achievement + Min ${displayCurrency}`} value={money(metrics.achievementMin)} tone={metrics.gapMin >= 0 ? "green" : "amber"} />
+        <KpiCard label={`Achievement + Max ${displayCurrency}`} value={money(metrics.achievementMax)} tone={metrics.gapMax >= 0 ? "green" : "amber"} />
+        <KpiCard label={`Gap Using Min ${displayCurrency}`} value={money(metrics.gapMin)} tone={metrics.gapMin >= 0 ? "green" : "red"} />
+        <KpiCard label={`Gap Using Max ${displayCurrency}`} value={money(metrics.gapMax)} tone={metrics.gapMax >= 0 ? "green" : "red"} />
         <KpiCard label="Min Coverage %" value={formatPercent(metrics.minCoverage)} tone={metrics.minCoverage >= 1 ? "green" : "amber"} />
         <KpiCard label="Max Coverage %" value={formatPercent(metrics.maxCoverage)} tone={metrics.maxCoverage >= 1 ? "green" : "amber"} />
       </div>
@@ -3647,14 +3673,14 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
             { header: "Team Lead", render: (row) => row.team.teamLead },
             { header: "Currency", render: (row) => row.team.currency },
             { header: "KRW Rate", render: (row) => row.team.krwRate.toLocaleString() },
-            { header: `Target ${currencyView}`, render: (row) => money(row.target, row.team) },
-            { header: `Closed Achievement ${currencyView}`, render: (row) => money(row.closed, row.team) },
-            { header: `Min Forecast ${currencyView}`, render: (row) => money(row.min, row.team) },
-            { header: `Max Forecast ${currencyView}`, render: (row) => money(row.max, row.team) },
-            { header: `Achievement + Min ${currencyView}`, render: (row) => money(row.achievementMin, row.team) },
-            { header: `Achievement + Max ${currencyView}`, render: (row) => money(row.achievementMax, row.team) },
-            { header: `Gap Using Min ${currencyView}`, render: (row) => money(row.gapMin, row.team) },
-            { header: `Gap Using Max ${currencyView}`, render: (row) => money(row.gapMax, row.team) },
+            { header: `Target ${displayCurrency}`, render: (row) => money(row.target, row.team) },
+            { header: `Closed Achievement ${displayCurrency}`, render: (row) => money(row.closed, row.team) },
+            { header: `Min Forecast ${displayCurrency}`, render: (row) => money(row.min, row.team) },
+            { header: `Max Forecast ${displayCurrency}`, render: (row) => money(row.max, row.team) },
+            { header: `Achievement + Min ${displayCurrency}`, render: (row) => money(row.achievementMin, row.team) },
+            { header: `Achievement + Max ${displayCurrency}`, render: (row) => money(row.achievementMax, row.team) },
+            { header: `Gap Using Min ${displayCurrency}`, render: (row) => money(row.gapMin, row.team) },
+            { header: `Gap Using Max ${displayCurrency}`, render: (row) => money(row.gapMax, row.team) },
             { header: "Min Coverage %", render: (row) => formatPercent(row.minCoverage) },
             { header: "Max Coverage %", render: (row) => formatPercent(row.maxCoverage) },
             {
@@ -3674,14 +3700,14 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
           rows={categoryRows}
           columns={[
             { header: "Category", render: (row) => row.category },
-            { header: `Target ${currencyView}`, render: (row) => money(row.target) },
-            { header: `Closed Achievement ${currencyView}`, render: (row) => money(row.closed) },
-            { header: `Min Forecast ${currencyView}`, render: (row) => money(row.min) },
-            { header: `Max Forecast ${currencyView}`, render: (row) => money(row.max) },
-            { header: `Achievement + Min ${currencyView}`, render: (row) => money(row.achievementMin) },
-            { header: `Achievement + Max ${currencyView}`, render: (row) => money(row.achievementMax) },
-            { header: `Gap Using Min ${currencyView}`, render: (row) => money(row.gapMin) },
-            { header: `Gap Using Max ${currencyView}`, render: (row) => money(row.gapMax) },
+            { header: `Target ${displayCurrency}`, render: (row) => money(row.target) },
+            { header: `Closed Achievement ${displayCurrency}`, render: (row) => money(row.closed) },
+            { header: `Min Forecast ${displayCurrency}`, render: (row) => money(row.min) },
+            { header: `Max Forecast ${displayCurrency}`, render: (row) => money(row.max) },
+            { header: `Achievement + Min ${displayCurrency}`, render: (row) => money(row.achievementMin) },
+            { header: `Achievement + Max ${displayCurrency}`, render: (row) => money(row.achievementMax) },
+            { header: `Gap Using Min ${displayCurrency}`, render: (row) => money(row.gapMin) },
+            { header: `Gap Using Max ${displayCurrency}`, render: (row) => money(row.gapMax) },
             { header: "Min Coverage %", render: (row) => formatPercent(row.minCoverage) },
             { header: "Max Coverage %", render: (row) => formatPercent(row.maxCoverage) }
           ]}
@@ -3693,8 +3719,8 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
             <BarChart data={teamChart}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="team" />
-              <YAxis tickFormatter={(value) => chartAxisTick(value, useKrw ? "KRW" : summaryCurrency)} />
-              <Tooltip formatter={(value) => formatChartMoney(value, useKrw ? "KRW" : summaryCurrency)} />
+              <YAxis tickFormatter={(value) => chartAxisTick(value, displayCurrency)} />
+              <Tooltip formatter={(value) => formatChartMoney(value, displayCurrency)} />
               <Legend />
               <Bar dataKey="Target" fill="#0f2742" />
               <Bar dataKey="Achievement + Max" fill="#16825d" />
@@ -3706,8 +3732,8 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
             <BarChart data={categoryChart}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="category" />
-              <YAxis tickFormatter={(value) => chartAxisTick(value, useKrw ? "KRW" : summaryCurrency)} />
-              <Tooltip formatter={(value) => formatChartMoney(value, useKrw ? "KRW" : summaryCurrency)} />
+              <YAxis tickFormatter={(value) => chartAxisTick(value, displayCurrency)} />
+              <Tooltip formatter={(value) => formatChartMoney(value, displayCurrency)} />
               <Legend />
               <Bar dataKey="Target" fill="#0f2742" />
               <Bar dataKey="Achievement + Max" fill="#16825d" />
@@ -3725,13 +3751,13 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
                 outerRadius={92}
                 paddingAngle={2}
                 labelLine={false}
-                label={makePieLabel(useKrw ? "KRW" : summaryCurrency)}
+                label={makePieLabel(displayCurrency)}
               >
                 {coveragePie.map((entry, index) => (
                   <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(value) => formatChartMoney(value, useKrw ? "KRW" : summaryCurrency)} />
+              <Tooltip formatter={(value) => formatChartMoney(value, displayCurrency)} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
@@ -3747,13 +3773,13 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
                 outerRadius={92}
                 paddingAngle={2}
                 labelLine={false}
-                label={makePieLabel(useKrw ? "KRW" : summaryCurrency)}
+                label={makePieLabel(displayCurrency)}
               >
                 {forecastPie.map((entry, index) => (
                   <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(value) => formatChartMoney(value, useKrw ? "KRW" : summaryCurrency)} />
+              <Tooltip formatter={(value) => formatChartMoney(value, displayCurrency)} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
