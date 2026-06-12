@@ -2112,7 +2112,11 @@ function ChartPanel({ title, children, tall = false }) {
 
 function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear }) {
   const [goalType, setGoalType] = useStoredState("midas-dashboard-goal-type", "Responsibility Goal");
+  const [currencyView, setCurrencyView] = useStoredState("midas-dashboard-currency-view", "KRW");
   const { teams, deals, goals } = data;
+  const useKrw = currencyView === "KRW";
+  const displayCurrency = useKrw ? "KRW" : "EUR";
+  const eurRate = eurReferenceRate(teams);
   const baseScope = periodScope({
     year: selectedYear,
     periodType: selectedPeriodType,
@@ -2127,7 +2131,7 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
     quarter: selectedQuarter,
     halfYear: selectedHalfYear
   });
-  const metrics = calculateMetrics({
+  const metricsKrw = calculateMetrics({
     teams,
     deals,
     goals,
@@ -2135,9 +2139,10 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
     useKrw: true,
     scope: baseScope
   });
+  const metrics = useKrw ? metricsKrw : metricsToEur(metricsKrw, eurRate);
 
   const teamRows = teams.map((team) => {
-    const itemMetrics = calculateMetrics({
+    const itemMetricsKrw = calculateMetrics({
       teams,
       deals,
       goals,
@@ -2145,6 +2150,7 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
       useKrw: true,
       scope: { ...baseScope, teamId: team.id }
     });
+    const itemMetrics = useKrw ? itemMetricsKrw : metricsToEur(itemMetricsKrw, eurRate);
     return {
       id: team.id,
       team: team.teamName,
@@ -2162,7 +2168,7 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
   }));
 
   const categoryChart = CATEGORIES.map((category) => {
-    const categoryMetrics = calculateMetrics({
+    const categoryMetricsKrw = calculateMetrics({
       teams,
       deals,
       goals,
@@ -2170,6 +2176,7 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
       useKrw: true,
       scope: { ...baseScope, category }
     });
+    const categoryMetrics = useKrw ? categoryMetricsKrw : metricsToEur(categoryMetricsKrw, eurRate);
     return {
       category,
       "Min Forecast": categoryMetrics.min,
@@ -2184,16 +2191,16 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
     { name: "Remaining to Target", value: Math.max(metrics.target - metrics.achievementMax, 0), color: "#c24136" }
   ].filter((item) => item.value > 0);
 
-  const closedHelper = closedAchievementHelper(metrics, "KRW");
+  const closedHelper = closedAchievementHelper(metrics, displayCurrency);
   const kpis = [
-    ["Total Target", metrics.target, "navy"],
-    ["Closed Achievement", metrics.closed, "green", false, closedHelper.text, closedHelper.tone],
-    ["Min Forecast", metrics.min, "blue"],
-    ["Max Forecast", metrics.max, "blue"],
-    ["Achievement + Min Forecast", metrics.achievementMin, metrics.gapMin >= 0 ? "green" : "amber"],
-    ["Achievement + Max Forecast", metrics.achievementMax, metrics.gapMax >= 0 ? "green" : "amber"],
-    ["Gap Using Min", metrics.gapMin, metrics.gapMin >= 0 ? "green" : "red"],
-    ["Gap Using Max", metrics.gapMax, metrics.gapMax >= 0 ? "green" : "red"],
+    [`Total Target ${displayCurrency}`, metrics.target, "navy"],
+    [`Closed Achievement ${displayCurrency}`, metrics.closed, "green", false, closedHelper.text, closedHelper.tone],
+    [`Min Forecast ${displayCurrency}`, metrics.min, "blue"],
+    [`Max Forecast ${displayCurrency}`, metrics.max, "blue"],
+    [`Achievement + Min Forecast ${displayCurrency}`, metrics.achievementMin, metrics.gapMin >= 0 ? "green" : "amber"],
+    [`Achievement + Max Forecast ${displayCurrency}`, metrics.achievementMax, metrics.gapMax >= 0 ? "green" : "amber"],
+    [`Gap Using Min ${displayCurrency}`, metrics.gapMin, metrics.gapMin >= 0 ? "green" : "red"],
+    [`Gap Using Max ${displayCurrency}`, metrics.gapMax, metrics.gapMax >= 0 ? "green" : "red"],
     ["Min Coverage %", metrics.minCoverage, metrics.minCoverage >= 1 ? "green" : "amber", true],
     ["Max Coverage %", metrics.maxCoverage, metrics.maxCoverage >= 1 ? "green" : "amber", true]
   ];
@@ -2204,21 +2211,30 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
         <div>
           <h2 className="section-title">Dashboard</h2>
           <p className="text-sm text-slate-500">
-            Management view for {label}, shown in KRW.
+            Management view for {label}, shown in {displayCurrency}.
           </p>
         </div>
-        <div className="w-full md:w-64">
-          <label className="label">Goal type</label>
-          <select className="field" value={goalType} onChange={(e) => setGoalType(e.target.value)}>
-            {GOAL_TYPES.map((type) => (
-              <option key={type}>{type}</option>
-            ))}
-          </select>
+        <div className="grid w-full gap-3 sm:grid-cols-2 md:w-[34rem]">
+          <div>
+            <label className="label">Goal type</label>
+            <select className="field" value={goalType} onChange={(e) => setGoalType(e.target.value)}>
+              {GOAL_TYPES.map((type) => (
+                <option key={type}>{type}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Currency view</label>
+            <select className="field" value={displayCurrency} onChange={(e) => setCurrencyView(e.target.value)}>
+              <option>KRW</option>
+              <option>EUR</option>
+            </select>
+          </div>
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {kpis.map(([label, value, tone, isPercent, helper, helperTone]) => (
-          <KpiCard key={label} label={label} value={isPercent ? formatPercent(value) : formatMoney(value, "KRW")} tone={tone} helper={helper} helperTone={helperTone} />
+          <KpiCard key={label} label={label} value={isPercent ? formatPercent(value) : formatMoney(value, displayCurrency)} tone={tone} helper={helper} helperTone={helperTone} />
         ))}
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
@@ -2227,8 +2243,8 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
             <BarChart data={teamChart}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
-              <YAxis tickFormatter={(value) => `${Math.round(value / 1000000)}M`} />
-              <Tooltip formatter={(value) => formatChartMoney(value, "KRW")} />
+              <YAxis tickFormatter={(value) => chartAxisTick(value, displayCurrency)} />
+              <Tooltip formatter={(value) => formatChartMoney(value, displayCurrency)} />
               <Legend />
               <Bar dataKey="Target" fill="#0f2742" />
               <Bar dataKey="Achievement + Min" fill="#16825d" />
@@ -2254,7 +2270,7 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
                     <Cell key={entry.name} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value) => formatChartMoney(value, "KRW")} />
+                <Tooltip formatter={(value) => formatChartMoney(value, displayCurrency)} />
               </PieChart>
             </ResponsiveContainer>
             <div className="space-y-3 text-sm">
@@ -2267,7 +2283,7 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
                       <span className="font-bold text-midas-ink">{entry.name}</span>
                     </div>
                     <div className="shrink-0 text-right">
-                      <div className="font-bold text-midas-ink">{formatChartMoney(entry.value, "KRW")}</div>
+                      <div className="font-bold text-midas-ink">{formatChartMoney(entry.value, displayCurrency)}</div>
                       <div className="text-xs font-semibold text-slate-500">{formatPercent(share)} of target</div>
                     </div>
                   </div>
@@ -2281,8 +2297,8 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
             <BarChart data={categoryChart}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="category" />
-              <YAxis tickFormatter={(value) => `${Math.round(value / 1000000)}M`} />
-              <Tooltip formatter={(value) => formatChartMoney(value, "KRW")} />
+              <YAxis tickFormatter={(value) => chartAxisTick(value, displayCurrency)} />
+              <Tooltip formatter={(value) => formatChartMoney(value, displayCurrency)} />
               <Legend />
               <Bar dataKey="Min Forecast" stackId="a" fill="#16825d" />
               <Bar dataKey="Max Upside" stackId="a" fill="#d18b16" />
@@ -2296,9 +2312,9 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
             columns={[
               { header: "Team", render: (row) => row.team },
               { header: "Lead", render: (row) => row.lead },
-              { header: "Target", render: (row) => formatMoney(row.target, "KRW") },
-              { header: "Achievement + Min", render: (row) => formatMoney(row.achievementMin, "KRW") },
-              { header: "Achievement + Max", render: (row) => formatMoney(row.achievementMax, "KRW") },
+              { header: `Target ${displayCurrency}`, render: (row) => formatMoney(row.target, displayCurrency) },
+              { header: `Achievement + Min ${displayCurrency}`, render: (row) => formatMoney(row.achievementMin, displayCurrency) },
+              { header: `Achievement + Max ${displayCurrency}`, render: (row) => formatMoney(row.achievementMax, displayCurrency) },
               { header: "Min Coverage", render: (row) => formatPercent(row.minCoverage) },
               { header: "Max Coverage", render: (row) => formatPercent(row.maxCoverage) },
               {
