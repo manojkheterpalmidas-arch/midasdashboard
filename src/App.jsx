@@ -40,7 +40,7 @@ const GOAL_TYPES = ["Responsibility Goal", "Challenge Goal"];
 const CURRENCIES = ["GBP", "EUR", "PLN", "USD"];
 const CHART_COLORS = ["#16825d", "#1d4f8f", "#d18b16", "#c24136", "#6d5bd0"];
 const RADIAN = Math.PI / 180;
-const TABS = ["Dashboard", "Teams", "Deals", "Monthly Goals", "Team View", "Individual Performance", "Summary"];
+const TABS = ["Dashboard", "Teams", "Deals", "Monthly Goals", "Team View", "Team Performance", "Individual Performance", "Summary"];
 const PERIOD_TYPES = ["Monthly", "Quarterly", "Half-Yearly"];
 const QUARTERS = [
   { value: 1, label: "Q1", months: [1, 2, 3] },
@@ -3259,6 +3259,169 @@ function IndividualPerformancePage({ data }) {
   );
 }
 
+function TeamPerformancePage({ data }) {
+  const [goalType, setGoalType] = useStoredState("midas-team-performance-goal-type", "Responsibility Goal");
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentHalfYear = today.getMonth() < 6 ? 1 : 2;
+  const label = periodLabel({
+    year: currentYear,
+    periodType: "Half-Yearly",
+    halfYear: currentHalfYear
+  });
+  const baseScope = periodScope({
+    year: currentYear,
+    periodType: "Half-Yearly",
+    halfYear: currentHalfYear
+  });
+
+  const rows = data.teams
+    .map((team) => {
+      const metrics = calculateMetrics({
+        teams: data.teams,
+        deals: data.deals,
+        goals: data.goals,
+        goalType,
+        useKrw: true,
+        scope: { ...baseScope, teamId: team.id }
+      });
+      const achievedPercent = metrics.target > 0 ? metrics.closed / metrics.target : 0;
+      const remaining = Math.max(metrics.target - metrics.closed, 0);
+      const reps = (team.reps || [])
+        .map((repName) => {
+          const repMetrics = calculateMetrics({
+            teams: data.teams,
+            deals: data.deals,
+            goals: data.goals,
+            goalType,
+            useKrw: true,
+            scope: { ...baseScope, teamId: team.id, repName }
+          });
+          const repPercent = repMetrics.target > 0 ? repMetrics.closed / repMetrics.target : 0;
+          return {
+            id: `${team.id}-${repName}`,
+            repName,
+            ...repMetrics,
+            achievedPercent: repPercent,
+            remaining: Math.max(repMetrics.target - repMetrics.closed, 0)
+          };
+        })
+        .sort((a, b) => b.achievedPercent - a.achievedPercent || b.closed - a.closed || a.repName.localeCompare(b.repName));
+      return {
+        id: team.id,
+        team,
+        ...metrics,
+        achievedPercent,
+        remaining,
+        remainingPercent: metrics.target > 0 ? remaining / metrics.target : 0,
+        reps
+      };
+    })
+    .sort((a, b) => b.achievedPercent - a.achievedPercent || b.closed - a.closed || a.team.teamName.localeCompare(b.team.teamName));
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="section-title">Team Performance</h2>
+          <p className="text-sm text-slate-500">
+            Big-screen team ranking for {label}. Teams are ranked by achieved percentage, with rep performance shown inside each team.
+          </p>
+        </div>
+        <div className="w-full md:w-64">
+          <label className="label">Goal type</label>
+          <select className="field" value={goalType} onChange={(e) => setGoalType(e.target.value)}>
+            {GOAL_TYPES.map((type) => (
+              <option key={type}>{type}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        {rows.map((row, index) => {
+          const pieData = [
+            { name: "Achieved", value: row.closed, color: "#16825d" },
+            { name: "Remaining", value: row.remaining, color: "#c24136" }
+          ].filter((item) => item.value > 0);
+          if (!pieData.length) pieData.push({ name: "No goal set", value: 1, color: "#cbd5e1" });
+          return (
+            <div key={row.id} className="panel p-4">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-extrabold uppercase tracking-wide text-slate-500">Rank #{index + 1}</div>
+                  <h3 className="mt-1 text-2xl font-extrabold text-midas-ink">{row.team.teamName}</h3>
+                  <div className="mt-1 text-sm font-semibold text-slate-500">Lead: {row.team.teamLead || "-"}</div>
+                </div>
+                <div className={`rounded-full px-3 py-1 text-sm font-extrabold ${row.achievedPercent >= 1 ? "bg-green-100 text-green-700" : row.achievedPercent >= 0.7 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>
+                  {formatPercent(row.achievedPercent)}
+                </div>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-[190px_1fr] lg:items-center">
+                <div className="h-48">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={48} outerRadius={76} paddingAngle={2} label={false}>
+                        {pieData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => formatChartMoney(value, "KRW")} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Team Goal</div>
+                      <div className="text-lg font-extrabold text-midas-ink">{formatChartMoney(row.target, "KRW")}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Achieved</div>
+                      <div className="text-lg font-extrabold text-green-700">{formatChartMoney(row.closed, "KRW")}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Remaining</div>
+                      <div className="text-lg font-extrabold text-red-700">{formatChartMoney(row.remaining, "KRW")}</div>
+                    </div>
+                  </div>
+                  <div className="space-y-2 border-t border-midas-line pt-3">
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Rep performance</div>
+                    {row.reps.map((rep) => {
+                      const capped = Math.min(rep.achievedPercent * 100, 140);
+                      const width = `${Math.min(capped, 100)}%`;
+                      const barColor = rep.achievedPercent >= 1 ? "bg-green-600" : rep.achievedPercent >= 0.7 ? "bg-amber-500" : "bg-red-500";
+                      return (
+                        <div key={rep.id}>
+                          <div className="mb-1 flex items-center justify-between gap-3 text-sm font-bold">
+                            <span className="text-midas-ink">{rep.repName}</span>
+                            <span className={rep.achievedPercent >= 1 ? "text-green-700" : rep.achievedPercent >= 0.7 ? "text-amber-700" : "text-red-700"}>
+                              {formatPercent(rep.achievedPercent)}
+                            </span>
+                          </div>
+                          <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+                            <div className={`h-full rounded-full ${barColor}`} style={{ width }} />
+                          </div>
+                          <div className="mt-1 text-xs font-semibold text-slate-500">
+                            {formatChartMoney(rep.closed, "KRW")} achieved / {formatChartMoney(rep.target, "KRW")} goal
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {!row.reps.length ? <div className="text-sm font-semibold text-slate-500">No reps listed for this team.</div> : null}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {!rows.length ? (
+        <div className="panel p-5 text-sm font-semibold text-slate-500">No teams found for the current half-year view.</div>
+      ) : null}
+    </div>
+  );
+}
+
 function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear }) {
   const [year, setYear] = useStoredState("midas-summary-year", selectedYear);
   const [month, setMonth] = useStoredState("midas-summary-month", selectedMonth);
@@ -3781,6 +3944,7 @@ export default function App() {
         selectedHalfYear={selectedHalfYear}
       />
     ),
+    "Team Performance": <TeamPerformancePage data={scopedData} />,
     "Individual Performance": (
       <IndividualPerformancePage data={scopedData} />
     ),
