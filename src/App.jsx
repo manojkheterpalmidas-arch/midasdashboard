@@ -2614,8 +2614,12 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
 }
 
 function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
-  const [goalType, setGoalType] = useState("Responsibility Goal");
-  const [year, setYear] = useState(selectedYear);
+  const [goalType, setGoalType] = useStoredState("midas-goals-goal-type", "Responsibility Goal");
+  const [year, setYear] = useStoredState("midas-goals-year", selectedYear);
+  const [monthFilter, setMonthFilter] = useStoredState("midas-goals-month", "All");
+  const [teamFilter, setTeamFilter] = useStoredState("midas-goals-team", "All");
+  const [repFilter, setRepFilter] = useStoredState("midas-goals-rep", "All");
+  const [categoryFilter, setCategoryFilter] = useStoredState("midas-goals-category", "All");
   const [editing, setEditing] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [achievementBulkOpen, setAchievementBulkOpen] = useState(false);
@@ -2671,7 +2675,42 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
     await refreshData();
   }
 
-  const rows = data.goals.filter((goal) => num(goal.year) === num(year) && goal.goalType === goalType);
+  const repOptions = Array.from(
+    new Set([
+      ...(teamFilter === "All" ? data.teams.flatMap((team) => team.reps || []) : getTeam(data.teams, teamFilter)?.reps || []),
+      ...data.goals
+        .filter((goal) => teamFilter === "All" || goal.teamId === teamFilter)
+        .map((goal) => goal.repName)
+    ])
+  )
+    .filter(Boolean)
+    .sort();
+
+  useEffect(() => {
+    if (repFilter !== "All" && !repOptions.includes(repFilter)) setRepFilter("All");
+  }, [repFilter, repOptions, setRepFilter]);
+
+  const rows = data.goals
+    .filter((goal) => {
+      if (num(goal.year) !== num(year)) return false;
+      if (goal.goalType !== goalType) return false;
+      if (monthFilter !== "All" && num(goal.month) !== num(monthFilter)) return false;
+      if (teamFilter !== "All" && goal.teamId !== teamFilter) return false;
+      if (repFilter !== "All" && goal.repName !== repFilter) return false;
+      if (categoryFilter !== "All" && goal.category !== categoryFilter) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const teamA = getTeam(data.teams, a.teamId)?.teamName || "";
+      const teamB = getTeam(data.teams, b.teamId)?.teamName || "";
+      return (
+        num(a.year) - num(b.year) ||
+        num(a.month) - num(b.month) ||
+        teamA.localeCompare(teamB) ||
+        String(a.repName || "").localeCompare(String(b.repName || "")) ||
+        String(a.category || "").localeCompare(String(b.category || ""))
+      );
+    });
 
   return (
     <div className="space-y-5">
@@ -2693,12 +2732,59 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
         </div>
       </div>
       <div className="panel p-4">
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
           <div>
             <label className="label">Year</label>
             <select className="field" value={year} onChange={(e) => setYear(e.target.value)}>
               {YEARS.map((item) => (
                 <option key={item}>{item}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Month</label>
+            <select className="field" value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)}>
+              <option>All</option>
+              {MONTHS.map((month, index) => (
+                <option key={month} value={index + 1}>
+                  {month}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Team</label>
+            <select
+              className="field"
+              value={teamFilter}
+              onChange={(e) => {
+                setTeamFilter(e.target.value);
+                setRepFilter("All");
+              }}
+            >
+              <option>All</option>
+              {data.teams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.teamName}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Rep</label>
+            <select className="field" value={repFilter} onChange={(e) => setRepFilter(e.target.value)}>
+              <option>All</option>
+              {repOptions.map((rep) => (
+                <option key={rep}>{rep}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Category</label>
+            <select className="field" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+              <option>All</option>
+              {CATEGORIES.map((category) => (
+                <option key={category}>{category}</option>
               ))}
             </select>
           </div>
@@ -2710,6 +2796,23 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
               ))}
             </select>
           </div>
+          <div className="flex items-end">
+            <button
+              type="button"
+              className="btn-secondary w-full"
+              onClick={() => {
+                setMonthFilter("All");
+                setTeamFilter("All");
+                setRepFilter("All");
+                setCategoryFilter("All");
+              }}
+            >
+              Clear filters
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 text-sm font-semibold text-slate-500">
+          Showing {rows.length} goal row{rows.length === 1 ? "" : "s"} for {year}.
         </div>
       </div>
       <div className="panel">
@@ -2805,7 +2908,7 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
           <GoalForm
             teams={data.teams}
             initialGoal={editing.id ? editing : null}
-            selectedYear={selectedYear}
+            selectedYear={year}
             selectedMonth={selectedMonth}
             goalType={goalType}
             onSave={saveGoal}
@@ -2818,7 +2921,7 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
         <Modal title="Bulk Create Monthly Goals" onClose={() => setBulkOpen(false)}>
           <BulkGoalForm
             teams={data.teams}
-            selectedYear={selectedYear}
+            selectedYear={year}
             goalType={goalType}
             onSave={saveBulk}
             onCancel={() => setBulkOpen(false)}
@@ -2830,7 +2933,7 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
         <Modal title="Bulk Add Closed Achievements" onClose={() => setAchievementBulkOpen(false)}>
           <BulkAchievementForm
             teams={data.teams}
-            selectedYear={selectedYear}
+            selectedYear={year}
             onSave={saveAchievementBulk}
             onCancel={() => setAchievementBulkOpen(false)}
             saving={savingAchievements}
