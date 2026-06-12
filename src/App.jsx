@@ -595,6 +595,11 @@ function scopedDataForAccess(data, access) {
   };
 }
 
+function isPerformanceTeam(team) {
+  const name = String(team.teamName || "").trim().toLowerCase();
+  return name === "uk" || name === "uk team" || name === "ee1" || name === "ee2" || name === "france" || name.includes("france");
+}
+
 function makePieLabel(currency = "KRW") {
   return ({ cx, cy, midAngle, outerRadius, value, name, fill }) => {
     if (!value) return null;
@@ -3127,10 +3132,7 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
 
 function IndividualPerformancePage({ data }) {
   const [goalType, setGoalType] = useStoredState("midas-individual-performance-goal-type", "Responsibility Goal");
-  const includedTeams = data.teams.filter((team) => {
-    const name = String(team.teamName || "").trim().toLowerCase();
-    return name === "uk" || name.includes("uk team") || name === "ee1" || name === "ee2" || name.includes("france");
-  });
+  const includedTeams = data.teams.filter(isPerformanceTeam);
   const teamIds = includedTeams.map((team) => team.id);
   const today = new Date();
   const currentYear = today.getFullYear();
@@ -3261,6 +3263,7 @@ function IndividualPerformancePage({ data }) {
 
 function TeamPerformancePage({ data }) {
   const [goalType, setGoalType] = useStoredState("midas-team-performance-goal-type", "Responsibility Goal");
+  const includedTeams = data.teams.filter(isPerformanceTeam);
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentHalfYear = today.getMonth() < 6 ? 1 : 2;
@@ -3275,7 +3278,7 @@ function TeamPerformancePage({ data }) {
     halfYear: currentHalfYear
   });
 
-  const rows = data.teams
+  const rows = includedTeams
     .map((team) => {
       const metrics = calculateMetrics({
         teams: data.teams,
@@ -3325,7 +3328,7 @@ function TeamPerformancePage({ data }) {
         <div>
           <h2 className="section-title">Team Performance</h2>
           <p className="text-sm text-slate-500">
-            Big-screen team ranking for {label}. Teams are ranked by achieved percentage, with rep performance shown inside each team.
+            Big-screen team ranking for {label}, covering UK, EE1, EE2, and France only. Teams are ranked by achieved percentage, with rep performance shown inside each team.
           </p>
         </div>
         <div className="w-full md:w-64">
@@ -3416,7 +3419,7 @@ function TeamPerformancePage({ data }) {
         })}
       </div>
       {!rows.length ? (
-        <div className="panel p-5 text-sm font-semibold text-slate-500">No teams found for the current half-year view.</div>
+        <div className="panel p-5 text-sm font-semibold text-slate-500">No UK, EE1, EE2, or France teams found for the current half-year view.</div>
       ) : null}
     </div>
   );
