@@ -2944,12 +2944,34 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
   );
 }
 
-function ForecastTable({ title, deals, team, currency, useKrw }) {
-  const totalMin = deals.reduce((sum, deal) => sum + num(deal.minAmount), 0);
-  const totalMax = deals.reduce((sum, deal) => sum + num(deal.maxAmount), 0);
+function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = false }) {
+  const openDeals = deals.filter((deal) => deal.status === "Open");
+  const closedDeals = deals.filter((deal) => deal.status === "Closed");
+  const totalMin = openDeals.reduce((sum, deal) => sum + num(deal.minAmount), 0);
+  const totalMax = openDeals.reduce((sum, deal) => sum + num(deal.maxAmount), 0);
+  const totalClosed = closedDeals.reduce((sum, deal) => sum + dealClosedAmount(deal), 0);
   const displayAmount = (value) => (useKrw ? toKrw(value, team) : num(value));
   const totalMinDisplay = displayAmount(totalMin);
   const totalMaxDisplay = displayAmount(totalMax);
+  const totalClosedDisplay = displayAmount(totalClosed);
+  const columns = [
+    { header: "Company", render: (row) => row.companyName },
+    { header: "Product", render: (row) => row.product },
+    { header: "Rep", render: (row) => row.repName },
+    ...(includeClosed
+      ? [{ header: "Status", render: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge> }]
+      : []),
+    { header: useKrw ? "Min KRW" : "Min Amount", render: (row) => (row.status === "Open" ? formatMoney(displayAmount(row.minAmount), currency) : "-") },
+    { header: useKrw ? "Max KRW" : "Max Amount", render: (row) => (row.status === "Open" ? formatMoney(displayAmount(row.maxAmount), currency) : "-") },
+    ...(includeClosed
+      ? [{ header: useKrw ? "Closed KRW" : "Closed Amount", render: (row) => (row.status === "Closed" ? formatMoney(displayAmount(dealClosedAmount(row)), currency) : "-") }]
+      : []),
+    { header: "Probability", render: (row) => `${row.probability}%` },
+    { header: "Temperature", render: (row) => <Badge tone={temperatureTone(row.temperature)}>{row.temperature}</Badge> },
+    { header: "Comments", render: (row) => row.comments },
+    { header: "Next Action", render: (row) => row.nextAction }
+  ];
+
   return (
     <div className="panel">
       <div className="border-b border-midas-line px-4 py-3">
@@ -2957,23 +2979,14 @@ function ForecastTable({ title, deals, team, currency, useKrw }) {
       </div>
       <DataTable
         rows={deals}
-        columns={[
-          { header: "Company", render: (row) => row.companyName },
-          { header: "Product", render: (row) => row.product },
-          { header: "Rep", render: (row) => row.repName },
-          { header: useKrw ? "Min KRW" : "Min Amount", render: (row) => formatMoney(displayAmount(row.minAmount), currency) },
-          { header: useKrw ? "Max KRW" : "Max Amount", render: (row) => formatMoney(displayAmount(row.maxAmount), currency) },
-          { header: "Probability", render: (row) => `${row.probability}%` },
-          { header: "Temperature", render: (row) => <Badge tone={temperatureTone(row.temperature)}>{row.temperature}</Badge> },
-          { header: "Comments", render: (row) => row.comments },
-          { header: "Next Action", render: (row) => row.nextAction }
-        ]}
+        columns={columns}
       />
-      <div className="grid gap-3 border-t border-midas-line bg-slate-50 p-4 text-sm font-bold md:grid-cols-4">
-        <div>Total Min: {formatMoney(totalMinDisplay, currency)}</div>
-        <div>Total Max: {formatMoney(totalMaxDisplay, currency)}</div>
-        {!useKrw ? <div>Total Min KRW: {formatMoney(toKrw(totalMin, team), "KRW")}</div> : null}
-        {!useKrw ? <div>Total Max KRW: {formatMoney(toKrw(totalMax, team), "KRW")}</div> : null}
+      <div className="grid gap-3 border-t border-midas-line bg-slate-50 p-4 text-sm font-bold md:grid-cols-5">
+        <div>Open Min: {formatMoney(totalMinDisplay, currency)}</div>
+        <div>Open Max: {formatMoney(totalMaxDisplay, currency)}</div>
+        {includeClosed ? <div>Closed: {formatMoney(totalClosedDisplay, currency)}</div> : null}
+        {!useKrw ? <div>Open Min KRW: {formatMoney(toKrw(totalMin, team), "KRW")}</div> : null}
+        {!useKrw ? <div>Open Max KRW: {formatMoney(toKrw(totalMax, team), "KRW")}</div> : null}
       </div>
     </div>
   );
@@ -2989,13 +3002,19 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
   const [goalType, setGoalType] = useStoredState("midas-team-view-goal-type", "Responsibility Goal");
   const [repName, setRepName] = useStoredState("midas-team-view-rep", "All reps");
   const [currencyView, setCurrencyView] = useStoredState("midas-team-view-currency-view", "Local");
+  const [dealTableView, setDealTableView] = useStoredState("midas-team-view-deal-table-view", "Open only");
   const team = getTeam(data.teams, teamId) || data.teams[0];
   const useKrw = currencyView === "KRW";
   const currency = useKrw ? "KRW" : team?.currency || "GBP";
   const scope = periodScope({ year, periodType, month, quarter, halfYear, teamId: team?.id, repName });
   const label = periodLabel({ year, periodType, month, quarter, halfYear });
   const metrics = calculateMetrics({ teams: data.teams, deals: data.deals, goals: data.goals, goalType, useKrw, scope });
-  const openDeals = data.deals.filter((deal) => deal.status === "Open" && matchesScope(deal, scope));
+  const includeClosedDeals = dealTableView === "Open + Closed";
+  const tableDeals = data.deals.filter((deal) => {
+    if (!matchesScope(deal, scope)) return false;
+    if (deal.status === "Open") return true;
+    return includeClosedDeals && deal.status === "Closed";
+  });
 
   const categoryRows = CATEGORIES.map((category) => {
     const categoryMetrics = calculateMetrics({
@@ -3062,7 +3081,7 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
         <p className="text-sm text-slate-500">Team-level working view for {label}, shown in {useKrw ? "KRW" : "local currency"}.</p>
       </div>
       <div className="panel p-4">
-        <div className="grid gap-3 md:grid-cols-7">
+        <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
           <div>
             <label className="label">Team</label>
             <select
@@ -3150,6 +3169,13 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
               <option>KRW</option>
             </select>
           </div>
+          <div>
+            <label className="label">Deal table view</label>
+            <select className="field" value={dealTableView} onChange={(e) => setDealTableView(e.target.value)}>
+              <option>Open only</option>
+              <option>Open + Closed</option>
+            </select>
+          </div>
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
@@ -3171,7 +3197,8 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
           team={team}
           currency={currency}
           useKrw={useKrw}
-          deals={openDeals.filter((deal) => deal.category === category)}
+          includeClosed={includeClosedDeals}
+          deals={tableDeals.filter((deal) => deal.category === category)}
         />
       ))}
       <div className="panel">
