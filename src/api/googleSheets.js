@@ -89,6 +89,18 @@ function rememberGoogleIdentity(identity = {}) {
   if (signedInEmail || signedInGoogleSub) sessionStorage.removeItem("midas-google-email-error");
 }
 
+function decodeJwtPayload(token) {
+  if (!token || !String(token).includes(".")) return {};
+  try {
+    const payload = String(token).split(".")[1];
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
+    return JSON.parse(decodeURIComponent(Array.from(decoded).map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`).join("")));
+  } catch {
+    return {};
+  }
+}
+
 async function refreshUserEmail() {
   if (!accessToken || (signedInEmail && signedInGoogleSub)) return signedInEmail;
   const profileEndpoints = [
@@ -226,6 +238,7 @@ export async function signIn() {
           accessToken = response.access_token;
           sessionStorage.setItem("midas-google-access-token", accessToken);
           sessionStorage.setItem("midas-google-session", "true");
+          rememberGoogleIdentity(decodeJwtPayload(response.id_token));
           try {
             const profile = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
               headers: { Authorization: `Bearer ${accessToken}` }

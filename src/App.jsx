@@ -3114,7 +3114,7 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
   );
 }
 
-function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear, onUpdateDeal, canEditManagerNotes = false, access, googleSub = "", emailLookupError = "" }) {
+function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear, onUpdateDeal, canEditManagerNotes = false, access, googleSub = "", emailLookupError = "", onReconnectIdentity }) {
   const [teamId, setTeamId] = useStoredState("midas-team-view-team-id", data.teams[0]?.id || "");
   const [year, setYear] = useStoredState("midas-team-view-year", selectedYear);
   const [month, setMonth] = useStoredState("midas-team-view-month", selectedMonth);
@@ -3210,6 +3210,11 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
           </span>
           {!access?.email && emailLookupError ? (
             <span className="rounded-full bg-red-100 px-3 py-1 text-red-700">Email lookup: {emailLookupError}</span>
+          ) : null}
+          {!access?.email && !googleSub ? (
+            <button type="button" className="rounded-full bg-midas-navy px-3 py-1 text-xs font-bold text-white" onClick={onReconnectIdentity}>
+              Reconnect Google identity
+            </button>
           ) : null}
         </div>
       </div>
@@ -4156,6 +4161,15 @@ export default function App() {
     }
   }
 
+  async function reconnectGoogleIdentity() {
+    try {
+      await api.login();
+      await refreshData(true);
+    } catch (error) {
+      alert(`Google identity reconnect failed: ${error.message || "Please try signing in again."}`);
+    }
+  }
+
   function setPreparedBy(preparedBy) {
     setData((current) => ({ ...current, preparedBy }));
   }
@@ -4274,6 +4288,7 @@ export default function App() {
         access={access}
         googleSub={currentUserGoogleSub}
         emailLookupError={emailLookupError}
+        onReconnectIdentity={reconnectGoogleIdentity}
       />
     ),
     Teams: <TeamsPage data={data} refreshData={refreshData} />,
