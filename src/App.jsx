@@ -1011,7 +1011,7 @@ function DataTable({ columns, rows, empty = "No records found." }) {
         <thead>
           <tr className="table-head">
             {columns.map((column) => (
-              <th key={column.header} className="px-3 py-3">
+              <th key={column.header} className={`px-3 py-3 ${column.className || ""}`}>
                 {column.header}
               </th>
             ))}
@@ -2970,6 +2970,7 @@ function InlineDealComment({ deal, field, onSave, placeholder, disabled = false 
   const initialValue = field === "repComment" ? deal.repComment || deal.comments || "" : deal.managerComment || "";
   const [value, setValue] = useState(initialValue);
   const [saving, setSaving] = useState(false);
+  const dirty = value !== initialValue;
 
   useEffect(() => {
     setValue(initialValue);
@@ -2991,17 +2992,21 @@ function InlineDealComment({ deal, field, onSave, placeholder, disabled = false 
   }
 
   return (
-    <div className="min-w-72">
+    <div className={`comment-cell ${disabled ? "comment-cell-disabled" : ""} ${dirty ? "comment-cell-dirty" : ""}`}>
       <textarea
-        className="field min-h-16 resize-y text-sm leading-snug"
+        className="comment-textarea"
         value={value}
         placeholder={placeholder}
         onChange={(event) => setValue(event.target.value)}
         onBlur={save}
         disabled={saving || disabled}
+        rows={3}
       />
-      {disabled ? <div className="mt-1 text-xs font-bold text-slate-400">Manager only</div> : null}
-      {saving ? <div className="mt-1 text-xs font-bold text-blue-700">Saving...</div> : null}
+      <div className="comment-meta">
+        {saving ? <span className="text-blue-700">Saving...</span> : null}
+        {!saving && dirty && !disabled ? <span className="text-amber-700">Unsaved</span> : null}
+        {disabled ? <span>Manager only</span> : null}
+      </div>
     </div>
   );
 }
@@ -3032,6 +3037,7 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
     { header: "Temperature", render: (row) => <Badge tone={temperatureTone(row.temperature)}>{row.temperature}</Badge> },
     {
       header: "Rep Comment",
+      className: "min-w-[26rem]",
       render: (row) => (
         <InlineDealComment
           deal={row}
@@ -3043,6 +3049,7 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
     },
     {
       header: "Manager Comment",
+      className: "min-w-[24rem]",
       render: (row) => (
         <InlineDealComment
           deal={row}
