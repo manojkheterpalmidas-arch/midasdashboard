@@ -3054,13 +3054,9 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
       header: "Rep Comment",
       className: "min-w-[26rem]",
       render: (row) => (
-        <InlineDealComment
-          deal={row}
-          field="repComment"
-          onSave={onSaveComment}
-          placeholder="Rep update"
-          disabled
-        />
+        <div className="max-w-xl whitespace-pre-wrap text-sm leading-6 text-midas-ink">
+          {row.repComment || row.comments || "-"}
+        </div>
       )
     },
     {
