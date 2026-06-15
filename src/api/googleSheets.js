@@ -82,7 +82,22 @@ async function refreshUserEmail() {
   } catch {
     signedInEmail = "";
   }
+  if (!signedInEmail) {
+    try {
+      const tokenInfo = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(accessToken)}`).then((res) => res.json());
+      signedInEmail = tokenInfo.email || "";
+      if (signedInEmail) sessionStorage.setItem("midas-google-email", signedInEmail);
+    } catch {
+      signedInEmail = "";
+    }
+  }
   return signedInEmail;
+}
+
+export async function ensureUserEmail() {
+  signedInEmail = signedInEmail || sessionStorage.getItem("midas-google-email") || "";
+  if (signedInEmail) return signedInEmail;
+  return refreshUserEmail();
 }
 
 function clientId() {

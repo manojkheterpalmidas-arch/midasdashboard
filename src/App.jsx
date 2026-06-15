@@ -4067,6 +4067,7 @@ export default function App() {
   const [importing, setImporting] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [refreshingSheets, setRefreshingSheets] = useState(false);
+  const [userEmail, setUserEmail] = useState(() => api.getUserEmail());
 
   useEffect(() => {
     async function boot() {
@@ -4092,8 +4093,12 @@ export default function App() {
 
   async function refreshData(force = false) {
     try {
+      const resolvedEmail = await api.ensureUserEmail();
+      setUserEmail(resolvedEmail || "");
       const cachedData = !force ? api.getCachedData() : null;
       const nextData = cachedData || (await api.readAllData());
+      const finalEmail = api.getUserEmail() || resolvedEmail || "";
+      setUserEmail(finalEmail);
       setData((current) => ({
         ...current,
         teams: nextData.teams,
@@ -4202,7 +4207,7 @@ export default function App() {
     alert(`Backup created: ${result.filename}`);
   }
 
-  const currentUserEmail = api.getUserEmail();
+  const currentUserEmail = userEmail || api.getUserEmail();
   const access = accessForUser(data.roles, currentUserEmail);
   const isManager = isManagerAccess(access);
   const canEditManagerNotes = canEditManagerComment(access) || hasTeamLeadRole(data.roles, currentUserEmail);

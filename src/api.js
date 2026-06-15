@@ -2,6 +2,7 @@ import {
   createDatabaseSpreadsheet,
   consumeRedirectToken,
   deleteRow,
+  ensureUserEmail,
   getCachedData,
   getSpreadsheetId,
   getUserEmail,
@@ -297,6 +298,7 @@ export const api = {
   getSpreadsheetId,
   setSpreadsheetId,
   getUserEmail,
+  ensureUserEmail,
   getCachedData,
   readAllData,
 
