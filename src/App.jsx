@@ -3100,7 +3100,7 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
   );
 }
 
-function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear, onUpdateDeal, canEditManagerNotes = false, access }) {
+function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear, onUpdateDeal, canEditManagerNotes = false, access, emailLookupError = "" }) {
   const [teamId, setTeamId] = useStoredState("midas-team-view-team-id", data.teams[0]?.id || "");
   const [year, setYear] = useStoredState("midas-team-view-year", selectedYear);
   const [month, setMonth] = useStoredState("midas-team-view-month", selectedMonth);
@@ -3193,6 +3193,9 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
           <span className={`rounded-full px-3 py-1 ${canEditManagerNotes ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
             Manager Comment: {canEditManagerNotes ? "editable" : "locked"}
           </span>
+          {!access?.email && emailLookupError ? (
+            <span className="rounded-full bg-red-100 px-3 py-1 text-red-700">Email lookup: {emailLookupError}</span>
+          ) : null}
         </div>
       </div>
       <div className="panel p-4">
@@ -4068,6 +4071,7 @@ export default function App() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [refreshingSheets, setRefreshingSheets] = useState(false);
   const [userEmail, setUserEmail] = useState(() => api.getUserEmail());
+  const [emailLookupError, setEmailLookupError] = useState(() => api.getUserEmailError?.() || "");
 
   useEffect(() => {
     async function boot() {
@@ -4095,10 +4099,12 @@ export default function App() {
     try {
       const resolvedEmail = await api.ensureUserEmail();
       setUserEmail(resolvedEmail || "");
+      setEmailLookupError(api.getUserEmailError?.() || "");
       const cachedData = !force ? api.getCachedData() : null;
       const nextData = cachedData || (await api.readAllData());
       const finalEmail = api.getUserEmail() || resolvedEmail || "";
       setUserEmail(finalEmail);
+      setEmailLookupError(api.getUserEmailError?.() || "");
       setData((current) => ({
         ...current,
         teams: nextData.teams,
@@ -4247,6 +4253,7 @@ export default function App() {
         onUpdateDeal={updateDealFromTeamView}
         canEditManagerNotes={canEditManagerNotes}
         access={access}
+        emailLookupError={emailLookupError}
       />
     ),
     Teams: <TeamsPage data={data} refreshData={refreshData} />,

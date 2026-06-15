@@ -5,6 +5,7 @@ import {
   ensureUserEmail,
   getCachedData,
   getSpreadsheetId,
+  getUserEmailError,
   getUserEmail,
   hasGoogleConfig,
   isSignedIn,
@@ -299,6 +300,7 @@ export const api = {
   setSpreadsheetId,
   getUserEmail,
   ensureUserEmail,
+  getUserEmailError,
   getCachedData,
   readAllData,
 

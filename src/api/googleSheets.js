@@ -32,7 +32,7 @@ export const SHEET_COLUMNS = {
   AuditLog: ["id", "timestamp", "userEmail", "action", "entityType", "entityId", "detailsJson"]
 };
 
-const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email";
+const SHEETS_SCOPE = "openid email profile https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email";
 const API_ROOT = "https://sheets.googleapis.com/v4/spreadsheets";
 const AUDIT_ENABLED = import.meta.env.VITE_ENABLE_AUDIT_LOG === "true";
 
@@ -73,24 +73,49 @@ export function getUserEmail() {
 
 async function refreshUserEmail() {
   if (!accessToken || signedInEmail) return signedInEmail;
-  try {
-    const profile = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    }).then((res) => res.json());
-    signedInEmail = profile.email || "";
-    if (signedInEmail) sessionStorage.setItem("midas-google-email", signedInEmail);
-  } catch {
-    signedInEmail = "";
-  }
-  if (!signedInEmail) {
+  const profileEndpoints = [
+    "https://www.googleapis.com/oauth2/v3/userinfo",
+    "https://www.googleapis.com/oauth2/v2/userinfo",
+    "https://openidconnect.googleapis.com/v1/userinfo"
+  ];
+
+  for (const endpoint of profileEndpoints) {
     try {
-      const tokenInfo = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(accessToken)}`).then((res) => res.json());
-      signedInEmail = tokenInfo.email || "";
-      if (signedInEmail) sessionStorage.setItem("midas-google-email", signedInEmail);
-    } catch {
-      signedInEmail = "";
+      const response = await fetch(endpoint, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const profile = await response.json().catch(() => ({}));
+      if (response.ok && profile.email) {
+        signedInEmail = profile.email;
+        sessionStorage.setItem("midas-google-email", signedInEmail);
+        sessionStorage.removeItem("midas-google-email-error");
+        return signedInEmail;
+      }
+      if (profile.error_description || profile.error) sessionStorage.setItem("midas-google-email-error", profile.error_description || profile.error);
+    } catch (error) {
+      sessionStorage.setItem("midas-google-email-error", error.message || "Could not read Google profile.");
     }
   }
+
+  const tokenInfoEndpoints = [
+    `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(accessToken)}`,
+    `https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${encodeURIComponent(accessToken)}`
+  ];
+  for (const endpoint of tokenInfoEndpoints) {
+    try {
+      const tokenInfo = await fetch(endpoint).then((res) => res.json());
+      if (tokenInfo.email) {
+        signedInEmail = tokenInfo.email;
+        sessionStorage.setItem("midas-google-email", signedInEmail);
+        sessionStorage.removeItem("midas-google-email-error");
+        return signedInEmail;
+      }
+      if (tokenInfo.error_description || tokenInfo.error) sessionStorage.setItem("midas-google-email-error", tokenInfo.error_description || tokenInfo.error);
+    } catch (error) {
+      sessionStorage.setItem("midas-google-email-error", error.message || "Could not inspect Google token.");
+    }
+  }
+  signedInEmail = "";
   return signedInEmail;
 }
 
@@ -98,6 +123,10 @@ export async function ensureUserEmail() {
   signedInEmail = signedInEmail || sessionStorage.getItem("midas-google-email") || "";
   if (signedInEmail) return signedInEmail;
   return refreshUserEmail();
+}
+
+export function getUserEmailError() {
+  return sessionStorage.getItem("midas-google-email-error") || "";
 }
 
 function clientId() {
@@ -208,6 +237,7 @@ export function signOut() {
   sessionStorage.removeItem("midas-google-access-token");
   sessionStorage.removeItem("midas-google-session");
   sessionStorage.removeItem("midas-google-email");
+  sessionStorage.removeItem("midas-google-email-error");
 }
 
 function sleep(ms) {
