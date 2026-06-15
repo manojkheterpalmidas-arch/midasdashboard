@@ -36,6 +36,14 @@ const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets https://www.g
 const API_ROOT = "https://sheets.googleapis.com/v4/spreadsheets";
 const AUDIT_ENABLED = import.meta.env.VITE_ENABLE_AUDIT_LOG === "true";
 
+function normalizeRoleValue(role) {
+  const normalized = String(role || "").trim().toLowerCase();
+  if (normalized === "team lead") return "Team Lead";
+  if (normalized === "manager") return "Manager";
+  if (normalized === "team member") return "Team Member";
+  return "Team Member";
+}
+
 let tokenClient = null;
 let accessToken = sessionStorage.getItem("midas-google-access-token") || "";
 let signedInEmail = "";
@@ -421,7 +429,7 @@ export function normalizeGoal(row) {
 }
 
 export function normalizeRole(row) {
-  const role = row.role === "Manager" ? "Manager" : "Team Member";
+  const role = normalizeRoleValue(row.role);
   return {
     ...row,
     email: String(row.email || "").trim().toLowerCase(),

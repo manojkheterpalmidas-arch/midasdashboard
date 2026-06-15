@@ -38,6 +38,7 @@ const TEMPERATURES = ["High", "Medium", "Low"];
 const STATUSES = ["Open", "Closed", "Lost", "Long-Term"];
 const GOAL_TYPES = ["Responsibility Goal", "Challenge Goal"];
 const CURRENCIES = ["GBP", "EUR", "PLN", "USD"];
+const PRIVILEGED_ROLES = ["Team Lead", "Manager"];
 const CHART_COLORS = ["#16825d", "#1d4f8f", "#d18b16", "#c24136", "#6d5bd0"];
 const RADIAN = Math.PI / 180;
 const TABS = ["Dashboard", "Teams", "Deals", "Monthly Goals", "Team View", "Team Performance", "Individual Performance", "Summary"];
@@ -553,17 +554,30 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+function normalizeRoleValue(role) {
+  const normalized = String(role || "").trim().toLowerCase();
+  if (normalized === "team lead") return "Team Lead";
+  if (normalized === "manager") return "Manager";
+  if (normalized === "team member") return "Team Member";
+  if (normalized === "no access") return "No Access";
+  return role || "No Access";
+}
+
 function accessForUser(roles = [], email = "") {
   const normalizedEmail = normalizeEmail(email);
   if (!roles.length) {
     return { role: "Manager", email: normalizedEmail, unrestrictedSetup: true };
   }
   const role = roles.find((item) => normalizeEmail(item.email) === normalizedEmail);
-  return role ? { ...role, email: normalizedEmail } : { role: "No Access", email: normalizedEmail };
+  return role ? { ...role, role: normalizeRoleValue(role.role), email: normalizedEmail } : { role: "No Access", email: normalizedEmail };
 }
 
 function isManagerAccess(access) {
-  return access?.role === "Manager";
+  return PRIVILEGED_ROLES.includes(access?.role);
+}
+
+function canEditManagerComment(access) {
+  return access?.role === "Team Lead";
 }
 
 function canUseTeam(access, teamId) {
@@ -2971,6 +2985,7 @@ function InlineDealComment({ deal, field, onSave, placeholder, disabled = false 
   const [value, setValue] = useState(initialValue);
   const [saving, setSaving] = useState(false);
   const dirty = value !== initialValue;
+  const disabledLabel = field === "repComment" ? "Edit in Deals tab" : "Team Lead only";
 
   useEffect(() => {
     setValue(initialValue);
@@ -3005,13 +3020,13 @@ function InlineDealComment({ deal, field, onSave, placeholder, disabled = false 
       <div className="comment-meta">
         {saving ? <span className="text-blue-700">Saving...</span> : null}
         {!saving && dirty && !disabled ? <span className="text-amber-700">Unsaved</span> : null}
-        {disabled ? <span>Manager only</span> : null}
+        {disabled ? <span>{disabledLabel}</span> : null}
       </div>
     </div>
   );
 }
 
-function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = false, onSaveComment, canEditManagerComment = false }) {
+function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = false, onSaveComment, canEditManagerNotes = false }) {
   const openDeals = deals.filter((deal) => deal.status === "Open");
   const closedDeals = deals.filter((deal) => deal.status === "Closed");
   const totalMin = openDeals.reduce((sum, deal) => sum + num(deal.minAmount), 0);
@@ -3044,6 +3059,7 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
           field="repComment"
           onSave={onSaveComment}
           placeholder="Rep update"
+          disabled
         />
       )
     },
@@ -3056,7 +3072,7 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
           field="managerComment"
           onSave={onSaveComment}
           placeholder="Manager note"
-          disabled={!canEditManagerComment}
+          disabled={!canEditManagerNotes}
         />
       )
     },
@@ -3083,7 +3099,7 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
   );
 }
 
-function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear, onUpdateDeal, isManager = false }) {
+function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear, onUpdateDeal, canEditManagerNotes = false }) {
   const [teamId, setTeamId] = useStoredState("midas-team-view-team-id", data.teams[0]?.id || "");
   const [year, setYear] = useStoredState("midas-team-view-year", selectedYear);
   const [month, setMonth] = useStoredState("midas-team-view-month", selectedMonth);
@@ -3290,7 +3306,7 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
           useKrw={useKrw}
           includeClosed={includeClosedDeals}
           onSaveComment={onUpdateDeal}
-          canEditManagerComment={isManager}
+          canEditManagerNotes={canEditManagerNotes}
           deals={tableDeals.filter((deal) => deal.category === category)}
         />
       ))}
@@ -4181,6 +4197,7 @@ export default function App() {
   const currentUserEmail = api.getUserEmail();
   const access = accessForUser(data.roles, currentUserEmail);
   const isManager = isManagerAccess(access);
+  const canEditManagerNotes = canEditManagerComment(access);
   const scopedData = scopedDataForAccess(data, access);
   const availableTabs = isManager ? TABS : TABS.filter((tab) => !["Teams", "Monthly Goals"].includes(tab));
 
@@ -4188,8 +4205,8 @@ export default function App() {
     const existing = data.deals.find((item) => item.id === deal.id);
     if (!existing) throw new Error("Deal was not found.");
     if (!canUseRecord(access, existing)) throw new Error("You can only update deals for your assigned team/rep.");
-    if (Object.prototype.hasOwnProperty.call(patch, "managerComment") && !isManager) {
-      throw new Error("Only managers can update manager comments.");
+    if (Object.prototype.hasOwnProperty.call(patch, "managerComment") && !canEditManagerNotes) {
+      throw new Error("Only the Team Lead role can update manager comments.");
     }
     const nextDeal = normalizeDeal({ ...existing, ...patch });
     const saved = await api.updateDeal(existing.id, nextDeal);
@@ -4215,7 +4232,7 @@ export default function App() {
         selectedQuarter={selectedQuarter}
         selectedHalfYear={selectedHalfYear}
         onUpdateDeal={updateDealFromTeamView}
-        isManager={isManager}
+        canEditManagerNotes={canEditManagerNotes}
       />
     ),
     Teams: <TeamsPage data={data} refreshData={refreshData} />,

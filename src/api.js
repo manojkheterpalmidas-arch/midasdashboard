@@ -25,6 +25,13 @@ const CATEGORIES = ["MODS", "Non-MODS", "New Sales"];
 const STATUSES = ["Open", "Closed", "Lost", "Long-Term"];
 const TEMPERATURES = ["High", "Medium", "Low"];
 const GOAL_TYPES = ["Responsibility Goal", "Challenge Goal"];
+function normalizeRoleValue(role) {
+  const normalized = String(role || "").trim().toLowerCase();
+  if (normalized === "team lead") return "Team Lead";
+  if (normalized === "manager") return "Manager";
+  if (normalized === "team member") return "Team Member";
+  return "Team Member";
+}
 
 function teamToSheet(team) {
   return {
@@ -71,10 +78,11 @@ function cleanGoal(goal) {
 }
 
 function cleanRole(role) {
+  const normalizedRole = normalizeRoleValue(role.role);
   return {
     ...role,
     email: String(role.email || "").trim().toLowerCase(),
-    role: role.role === "Manager" ? "Manager" : "Team Member",
+    role: normalizedRole,
     teamId: role.teamId || "",
     repName: role.repName || ""
   };
