@@ -577,7 +577,7 @@ function isManagerAccess(access) {
 }
 
 function canEditManagerComment(access) {
-  return access?.role === "Team Lead";
+  return normalizeRoleValue(access?.role) === "Team Lead";
 }
 
 function canUseTeam(access, teamId) {
@@ -3095,7 +3095,7 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
   );
 }
 
-function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear, onUpdateDeal, canEditManagerNotes = false }) {
+function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear, onUpdateDeal, canEditManagerNotes = false, access }) {
   const [teamId, setTeamId] = useStoredState("midas-team-view-team-id", data.teams[0]?.id || "");
   const [year, setYear] = useStoredState("midas-team-view-year", selectedYear);
   const [month, setMonth] = useStoredState("midas-team-view-month", selectedMonth);
@@ -3182,6 +3182,13 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
       <div>
         <h2 className="section-title">Team View</h2>
         <p className="text-sm text-slate-500">Team-level working view for {label}, shown in {useKrw ? "KRW" : "local currency"}.</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
+          <span className="rounded-full bg-slate-100 px-3 py-1">Signed in: {access?.email || "unknown"}</span>
+          <span className="rounded-full bg-slate-100 px-3 py-1">Role: {access?.role || "No Access"}</span>
+          <span className={`rounded-full px-3 py-1 ${canEditManagerNotes ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+            Manager Comment: {canEditManagerNotes ? "editable" : "locked"}
+          </span>
+        </div>
       </div>
       <div className="panel p-4">
         <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
@@ -4229,6 +4236,7 @@ export default function App() {
         selectedHalfYear={selectedHalfYear}
         onUpdateDeal={updateDealFromTeamView}
         canEditManagerNotes={canEditManagerNotes}
+        access={access}
       />
     ),
     Teams: <TeamsPage data={data} refreshData={refreshData} />,
