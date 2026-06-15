@@ -22,7 +22,9 @@ export const SHEET_COLUMNS = {
     "comments",
     "nextAction",
     "createdAt",
-    "updatedAt"
+    "updatedAt",
+    "repComment",
+    "managerComment"
   ],
   MonthlyGoals: ["id", "teamId", "repName", "year", "month", "category", "goalType", "targetAmount", "createdAt", "updatedAt"],
   UserRoles: ["id", "email", "role", "teamId", "repName", "createdAt", "updatedAt"],
@@ -244,6 +246,21 @@ function rowsToObjects(values = [], columns) {
     .filter((row) => Object.keys(row).some((key) => key !== "__rowNumber" && String(row[key] || "").trim() !== ""));
 }
 
+function headerNeedsUpgrade(values = [], columns = []) {
+  const header = values[0] || [];
+  return columns.some((column) => !header.includes(column));
+}
+
+async function ensureSheetHeaderColumns(sheetName, values = []) {
+  const columns = SHEET_COLUMNS[sheetName];
+  if (!columns || !headerNeedsUpgrade(values, columns)) return;
+  const range = encodeURIComponent(`${sheetName}!A1:${columnName(columns.length)}1`);
+  await sheetsFetch(`/values/${range}?valueInputOption=USER_ENTERED`, {
+    method: "PUT",
+    body: JSON.stringify({ range: `${sheetName}!A1`, majorDimension: "ROWS", values: [columns] })
+  });
+}
+
 function objectsToValues(rows, columns) {
   return [columns, ...rows.map((row) => columns.map((column) => row[column] ?? ""))];
 }
@@ -279,11 +296,12 @@ async function batchReadSheets(sheetNames = CORE_READ_SHEETS) {
   const ranges = sheetNames.map((sheetName) => `${sheetName}!A:${sheetName === "Settings" ? "B" : "Z"}`);
   const query = ranges.map((range) => `ranges=${encodeURIComponent(range)}`).join("&");
   const payload = await sheetsFetch(`/values:batchGet?${query}`);
-  sheetNames.forEach((sheetName, index) => {
+  for (const [index, sheetName] of sheetNames.entries()) {
     const columns = SHEET_COLUMNS[sheetName];
     const values = payload.valueRanges?.[index]?.values || [columns];
+    await ensureSheetHeaderColumns(sheetName, values);
     cacheSheet(sheetName, rowsToObjects(values, columns));
-  });
+  }
   allDataCache = dataFromSheetCache();
   return allDataCache;
 }
@@ -304,6 +322,7 @@ export async function readSheet(sheetName) {
   const columns = SHEET_COLUMNS[sheetName];
   const encoded = encodeURIComponent(`${sheetName}!A:Z`);
   const payload = await sheetsFetch(`/values/${encoded}`);
+  await ensureSheetHeaderColumns(sheetName, payload.values || [columns]);
   const rows = rowsToObjects(payload.values || [columns], columns);
   cacheSheet(sheetName, rows);
   allDataCache = dataFromSheetCache();
@@ -385,7 +404,9 @@ export function normalizeDeal(row) {
     minAmount: Number(row.minAmount || 0),
     maxAmount: Number(row.maxAmount || 0),
     probability: Number(row.probability || 0),
-    closedAmount: row.closedAmount === "" ? "" : Number(row.closedAmount || 0)
+    closedAmount: row.closedAmount === "" ? "" : Number(row.closedAmount || 0),
+    repComment: row.repComment || row.comments || "",
+    managerComment: row.managerComment || ""
   };
 }
 

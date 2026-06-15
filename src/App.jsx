@@ -77,6 +77,8 @@ const CSV_FIELDS = [
   "closedAmount",
   "expectedCloseDate",
   "comments",
+  "repComment",
+  "managerComment",
   "nextAction",
   "goalType",
   "targetAmount",
@@ -407,6 +409,8 @@ function csvToData(text) {
         closedAmount: record.closedAmount,
         expectedCloseDate: record.expectedCloseDate,
         comments: record.comments,
+        repComment: record.repComment,
+        managerComment: record.managerComment,
         nextAction: record.nextAction
       })
     );
@@ -640,8 +644,11 @@ function normalizeDeal(deal) {
     month: num(deal.month),
     minAmount: num(deal.minAmount),
     maxAmount: num(deal.maxAmount),
-    probability: num(deal.probability)
+    probability: num(deal.probability),
+    repComment: deal.repComment ?? deal.comments ?? "",
+    managerComment: deal.managerComment ?? ""
   };
+  next.comments = deal.comments ?? next.repComment;
   next.closedAmount =
     next.status === "Closed" && deal.closedAmount === "" ? next.maxAmount : num(deal.closedAmount);
   return next;
@@ -1261,6 +1268,8 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
       closedAmount: "",
       expectedCloseDate: "",
       comments: "",
+      repComment: "",
+      managerComment: "",
       nextAction: ""
     }
   );
@@ -1396,8 +1405,16 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
           <input type="date" className="field" value={form.expectedCloseDate} onChange={(e) => update("expectedCloseDate", e.target.value)} />
         </div>
         <div className="md:col-span-3">
-          <label className="label">Comments</label>
-          <textarea className="field min-h-20" value={form.comments} onChange={(e) => update("comments", e.target.value)} />
+          <label className="label">Rep comment</label>
+          <textarea
+            className="field min-h-20"
+            value={form.repComment ?? form.comments ?? ""}
+            onChange={(e) => setForm((current) => ({ ...current, repComment: e.target.value, comments: e.target.value }))}
+          />
+        </div>
+        <div className="md:col-span-3">
+          <label className="label">Manager comment</label>
+          <textarea className="field min-h-20" value={form.managerComment || ""} onChange={(e) => update("managerComment", e.target.value)} />
         </div>
         <div className="md:col-span-3">
           <label className="label">Next action</label>
@@ -1500,6 +1517,8 @@ function BulkDealForm({ teams, selectedYear, selectedMonth, onSave, onCancel, sa
           closedAmount: status === "Closed" ? localMax : 0,
           expectedCloseDate: "",
           comments: row.comments,
+          repComment: row.comments,
+          managerComment: "",
           nextAction: ""
         };
       });
@@ -2006,6 +2025,8 @@ function BulkAchievementForm({ teams, selectedYear, onSave, onCancel, saving = f
           closedAmount: localAmount,
           expectedCloseDate: "",
           comments: "Bulk entered previous achievement",
+          repComment: "Bulk entered previous achievement",
+          managerComment: "",
           nextAction: ""
         });
       });
@@ -2564,7 +2585,8 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
             { header: "Closed Amount", render: (row) => formatMoney(dealClosedAmount(row), getTeam(data.teams, row.teamId)?.currency) },
             { header: "Closed KRW", render: (row) => formatMoney(toKrw(dealClosedAmount(row), getTeam(data.teams, row.teamId)), "KRW") },
             { header: "Expected Close", render: (row) => row.expectedCloseDate || "-" },
-            { header: "Comments", render: (row) => row.comments },
+            { header: "Rep Comment", render: (row) => row.repComment || row.comments },
+            { header: "Manager Comment", render: (row) => row.managerComment },
             { header: "Next Action", render: (row) => row.nextAction },
             {
               header: "Edit",
@@ -2944,7 +2966,47 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
   );
 }
 
-function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = false }) {
+function InlineDealComment({ deal, field, onSave, placeholder, disabled = false }) {
+  const initialValue = field === "repComment" ? deal.repComment || deal.comments || "" : deal.managerComment || "";
+  const [value, setValue] = useState(initialValue);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setValue(initialValue);
+  }, [deal.id, initialValue]);
+
+  async function save() {
+    if (!onSave || value === initialValue) return;
+    if (disabled) return;
+    setSaving(true);
+    try {
+      const patch = field === "repComment" ? { repComment: value, comments: value } : { managerComment: value };
+      await onSave(deal, patch);
+    } catch (error) {
+      alert(`Could not save comment: ${error.message || "Google Sheets update failed."}`);
+      setValue(initialValue);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="min-w-72">
+      <textarea
+        className="field min-h-16 resize-y text-sm leading-snug"
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={save}
+        disabled={saving || disabled}
+      />
+      {disabled ? <div className="mt-1 text-xs font-bold text-slate-400">Manager only</div> : null}
+      {saving ? <div className="mt-1 text-xs font-bold text-blue-700">Saving...</div> : null}
+    </div>
+  );
+}
+
+function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = false, onSaveComment, canEditManagerComment = false }) {
   const openDeals = deals.filter((deal) => deal.status === "Open");
   const closedDeals = deals.filter((deal) => deal.status === "Closed");
   const totalMin = openDeals.reduce((sum, deal) => sum + num(deal.minAmount), 0);
@@ -2968,7 +3030,29 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
       : []),
     { header: "Probability", render: (row) => `${row.probability}%` },
     { header: "Temperature", render: (row) => <Badge tone={temperatureTone(row.temperature)}>{row.temperature}</Badge> },
-    { header: "Comments", render: (row) => row.comments },
+    {
+      header: "Rep Comment",
+      render: (row) => (
+        <InlineDealComment
+          deal={row}
+          field="repComment"
+          onSave={onSaveComment}
+          placeholder="Rep update"
+        />
+      )
+    },
+    {
+      header: "Manager Comment",
+      render: (row) => (
+        <InlineDealComment
+          deal={row}
+          field="managerComment"
+          onSave={onSaveComment}
+          placeholder="Manager note"
+          disabled={!canEditManagerComment}
+        />
+      )
+    },
     { header: "Next Action", render: (row) => row.nextAction }
   ];
 
@@ -2992,7 +3076,7 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
   );
 }
 
-function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear }) {
+function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear, onUpdateDeal, isManager = false }) {
   const [teamId, setTeamId] = useStoredState("midas-team-view-team-id", data.teams[0]?.id || "");
   const [year, setYear] = useStoredState("midas-team-view-year", selectedYear);
   const [month, setMonth] = useStoredState("midas-team-view-month", selectedMonth);
@@ -3198,6 +3282,8 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
           currency={currency}
           useKrw={useKrw}
           includeClosed={includeClosedDeals}
+          onSaveComment={onUpdateDeal}
+          canEditManagerComment={isManager}
           deals={tableDeals.filter((deal) => deal.category === category)}
         />
       ))}
@@ -4091,6 +4177,23 @@ export default function App() {
   const scopedData = scopedDataForAccess(data, access);
   const availableTabs = isManager ? TABS : TABS.filter((tab) => !["Teams", "Monthly Goals"].includes(tab));
 
+  async function updateDealFromTeamView(deal, patch) {
+    const existing = data.deals.find((item) => item.id === deal.id);
+    if (!existing) throw new Error("Deal was not found.");
+    if (!canUseRecord(access, existing)) throw new Error("You can only update deals for your assigned team/rep.");
+    if (Object.prototype.hasOwnProperty.call(patch, "managerComment") && !isManager) {
+      throw new Error("Only managers can update manager comments.");
+    }
+    const nextDeal = normalizeDeal({ ...existing, ...patch });
+    const saved = await api.updateDeal(existing.id, nextDeal);
+    const normalizedSaved = normalizeDeal({ ...nextDeal, ...saved });
+    setData((current) => ({
+      ...current,
+      deals: current.deals.map((item) => (item.id === existing.id ? normalizedSaved : item)),
+      lastUpdated: new Date().toISOString()
+    }));
+  }
+
   useEffect(() => {
     if (!availableTabs.includes(activeTab)) setActiveTab(availableTabs[0] || "Dashboard");
   }, [activeTab, availableTabs.join("|")]);
@@ -4104,6 +4207,8 @@ export default function App() {
         selectedPeriodType={selectedPeriodType}
         selectedQuarter={selectedQuarter}
         selectedHalfYear={selectedHalfYear}
+        onUpdateDeal={updateDealFromTeamView}
+        isManager={isManager}
       />
     ),
     Teams: <TeamsPage data={data} refreshData={refreshData} />,
