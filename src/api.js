@@ -7,6 +7,7 @@ import {
   getSpreadsheetId,
   getUserEmailError,
   getUserEmail,
+  getUserGoogleSub,
   hasGoogleConfig,
   isSignedIn,
   readAllData,
@@ -86,7 +87,8 @@ function cleanRole(role) {
     email: String(role.email || "").trim().toLowerCase(),
     role: normalizedRole,
     teamId: role.teamId || "",
-    repName: role.repName || ""
+    repName: role.repName || "",
+    googleSub: String(role.googleSub || "").trim()
   };
 }
 
@@ -299,6 +301,7 @@ export const api = {
   getSpreadsheetId,
   setSpreadsheetId,
   getUserEmail,
+  getUserGoogleSub,
   ensureUserEmail,
   getUserEmailError,
   getCachedData,

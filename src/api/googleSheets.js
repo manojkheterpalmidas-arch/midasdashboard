@@ -27,7 +27,7 @@ export const SHEET_COLUMNS = {
     "managerComment"
   ],
   MonthlyGoals: ["id", "teamId", "repName", "year", "month", "category", "goalType", "targetAmount", "createdAt", "updatedAt"],
-  UserRoles: ["id", "email", "role", "teamId", "repName", "createdAt", "updatedAt"],
+  UserRoles: ["id", "email", "role", "teamId", "repName", "createdAt", "updatedAt", "googleSub"],
   Settings: ["key", "value"],
   AuditLog: ["id", "timestamp", "userEmail", "action", "entityType", "entityId", "detailsJson"]
 };
@@ -47,6 +47,7 @@ function normalizeRoleValue(role) {
 let tokenClient = null;
 let accessToken = sessionStorage.getItem("midas-google-access-token") || "";
 let signedInEmail = sessionStorage.getItem("midas-google-email") || "";
+let signedInGoogleSub = sessionStorage.getItem("midas-google-sub") || "";
 let spreadsheetId = extractSpreadsheetId(import.meta.env.VITE_DEFAULT_SPREADSHEET_ID || localStorage.getItem("midas-google-spreadsheet-id") || "");
 let allDataCache = null;
 const sheetCache = {};
@@ -71,8 +72,25 @@ export function getUserEmail() {
   return signedInEmail || sessionStorage.getItem("midas-google-email") || "";
 }
 
+export function getUserGoogleSub() {
+  return signedInGoogleSub || sessionStorage.getItem("midas-google-sub") || "";
+}
+
+function rememberGoogleIdentity(identity = {}) {
+  if (identity.email) {
+    signedInEmail = identity.email;
+    sessionStorage.setItem("midas-google-email", signedInEmail);
+  }
+  const sub = identity.sub || identity.user_id || identity.userId;
+  if (sub) {
+    signedInGoogleSub = String(sub);
+    sessionStorage.setItem("midas-google-sub", signedInGoogleSub);
+  }
+  if (signedInEmail || signedInGoogleSub) sessionStorage.removeItem("midas-google-email-error");
+}
+
 async function refreshUserEmail() {
-  if (!accessToken || signedInEmail) return signedInEmail;
+  if (!accessToken || (signedInEmail && signedInGoogleSub)) return signedInEmail;
   const profileEndpoints = [
     "https://www.googleapis.com/oauth2/v3/userinfo",
     "https://www.googleapis.com/oauth2/v2/userinfo",
@@ -85,10 +103,8 @@ async function refreshUserEmail() {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       const profile = await response.json().catch(() => ({}));
-      if (response.ok && profile.email) {
-        signedInEmail = profile.email;
-        sessionStorage.setItem("midas-google-email", signedInEmail);
-        sessionStorage.removeItem("midas-google-email-error");
+      if (response.ok && (profile.email || profile.sub)) {
+        rememberGoogleIdentity(profile);
         return signedInEmail;
       }
       if (profile.error_description || profile.error) sessionStorage.setItem("midas-google-email-error", profile.error_description || profile.error);
@@ -104,10 +120,8 @@ async function refreshUserEmail() {
   for (const endpoint of tokenInfoEndpoints) {
     try {
       const tokenInfo = await fetch(endpoint).then((res) => res.json());
-      if (tokenInfo.email) {
-        signedInEmail = tokenInfo.email;
-        sessionStorage.setItem("midas-google-email", signedInEmail);
-        sessionStorage.removeItem("midas-google-email-error");
+      if (tokenInfo.email || tokenInfo.sub || tokenInfo.user_id) {
+        rememberGoogleIdentity(tokenInfo);
         return signedInEmail;
       }
       if (tokenInfo.error_description || tokenInfo.error) sessionStorage.setItem("midas-google-email-error", tokenInfo.error_description || tokenInfo.error);
@@ -121,7 +135,8 @@ async function refreshUserEmail() {
 
 export async function ensureUserEmail() {
   signedInEmail = signedInEmail || sessionStorage.getItem("midas-google-email") || "";
-  if (signedInEmail) return signedInEmail;
+  signedInGoogleSub = signedInGoogleSub || sessionStorage.getItem("midas-google-sub") || "";
+  if (signedInEmail && signedInGoogleSub) return signedInEmail;
   return refreshUserEmail();
 }
 
@@ -215,8 +230,7 @@ export async function signIn() {
             const profile = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
               headers: { Authorization: `Bearer ${accessToken}` }
             }).then((res) => res.json());
-            signedInEmail = profile.email || "";
-            if (signedInEmail) sessionStorage.setItem("midas-google-email", signedInEmail);
+            rememberGoogleIdentity(profile);
           } catch {
             signedInEmail = "";
           }
@@ -234,9 +248,11 @@ export function isSignedIn() {
 export function signOut() {
   accessToken = "";
   signedInEmail = "";
+  signedInGoogleSub = "";
   sessionStorage.removeItem("midas-google-access-token");
   sessionStorage.removeItem("midas-google-session");
   sessionStorage.removeItem("midas-google-email");
+  sessionStorage.removeItem("midas-google-sub");
   sessionStorage.removeItem("midas-google-email-error");
 }
 
@@ -483,7 +499,8 @@ export function normalizeRole(row) {
     email: String(row.email || "").trim().toLowerCase(),
     role,
     teamId: row.teamId || "",
-    repName: row.repName || ""
+    repName: row.repName || "",
+    googleSub: String(row.googleSub || "").trim()
   };
 }
 
@@ -510,7 +527,8 @@ export async function readAllData() {
       teamId: "",
       repName: "",
       createdAt: timestamp,
-      updatedAt: timestamp
+      updatedAt: timestamp,
+      googleSub: getUserGoogleSub()
     };
     const sheetRole = newRole;
     await appendSheet("UserRoles", [sheetRole]);

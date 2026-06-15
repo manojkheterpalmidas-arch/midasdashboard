@@ -563,13 +563,28 @@ function normalizeRoleValue(role) {
   return role || "No Access";
 }
 
-function accessForUser(roles = [], email = "") {
+function normalizeGoogleSub(value) {
+  return String(value || "").trim();
+}
+
+function roleMatchesIdentity(role, email = "", googleSub = "") {
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedSub = normalizeGoogleSub(googleSub);
+  return (
+    (normalizedEmail && normalizeEmail(role.email) === normalizedEmail) ||
+    (normalizedSub && normalizeGoogleSub(role.googleSub) === normalizedSub)
+  );
+}
+
+function accessForUser(roles = [], email = "", googleSub = "") {
   const normalizedEmail = normalizeEmail(email);
   if (!roles.length) {
-    return { role: "Manager", email: normalizedEmail, unrestrictedSetup: true };
+    return { role: "Manager", email: normalizedEmail, googleSub: normalizeGoogleSub(googleSub), unrestrictedSetup: true };
   }
-  const role = roles.find((item) => normalizeEmail(item.email) === normalizedEmail);
-  return role ? { ...role, role: normalizeRoleValue(role.role), email: normalizedEmail } : { role: "No Access", email: normalizedEmail };
+  const role = roles.find((item) => roleMatchesIdentity(item, email, googleSub));
+  return role
+    ? { ...role, role: normalizeRoleValue(role.role), email: normalizedEmail || normalizeEmail(role.email), googleSub: normalizeGoogleSub(googleSub) || normalizeGoogleSub(role.googleSub) }
+    : { role: "No Access", email: normalizedEmail, googleSub: normalizeGoogleSub(googleSub) };
 }
 
 function isManagerAccess(access) {
@@ -580,9 +595,8 @@ function canEditManagerComment(access) {
   return normalizeRoleValue(access?.role) === "Team Lead";
 }
 
-function hasTeamLeadRole(roles = [], email = "") {
-  const normalizedEmail = normalizeEmail(email);
-  return roles.some((role) => normalizeEmail(role.email) === normalizedEmail && normalizeRoleValue(role.role) === "Team Lead");
+function hasTeamLeadRole(roles = [], email = "", googleSub = "") {
+  return roles.some((role) => roleMatchesIdentity(role, email, googleSub) && normalizeRoleValue(role.role) === "Team Lead");
 }
 
 function canUseTeam(access, teamId) {
@@ -3100,7 +3114,7 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
   );
 }
 
-function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear, onUpdateDeal, canEditManagerNotes = false, access, emailLookupError = "" }) {
+function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear, onUpdateDeal, canEditManagerNotes = false, access, googleSub = "", emailLookupError = "" }) {
   const [teamId, setTeamId] = useStoredState("midas-team-view-team-id", data.teams[0]?.id || "");
   const [year, setYear] = useStoredState("midas-team-view-year", selectedYear);
   const [month, setMonth] = useStoredState("midas-team-view-month", selectedMonth);
@@ -3189,6 +3203,7 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
         <p className="text-sm text-slate-500">Team-level working view for {label}, shown in {useKrw ? "KRW" : "local currency"}.</p>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
           <span className="rounded-full bg-slate-100 px-3 py-1">Signed in: {access?.email || "unknown"}</span>
+          <span className="rounded-full bg-slate-100 px-3 py-1">Google ID: {googleSub || access?.googleSub || "unknown"}</span>
           <span className="rounded-full bg-slate-100 px-3 py-1">Role: {access?.role || "No Access"}</span>
           <span className={`rounded-full px-3 py-1 ${canEditManagerNotes ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
             Manager Comment: {canEditManagerNotes ? "editable" : "locked"}
@@ -4071,6 +4086,7 @@ export default function App() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [refreshingSheets, setRefreshingSheets] = useState(false);
   const [userEmail, setUserEmail] = useState(() => api.getUserEmail());
+  const [userGoogleSub, setUserGoogleSub] = useState(() => api.getUserGoogleSub?.() || "");
   const [emailLookupError, setEmailLookupError] = useState(() => api.getUserEmailError?.() || "");
 
   useEffect(() => {
@@ -4099,11 +4115,13 @@ export default function App() {
     try {
       const resolvedEmail = await api.ensureUserEmail();
       setUserEmail(resolvedEmail || "");
+      setUserGoogleSub(api.getUserGoogleSub?.() || "");
       setEmailLookupError(api.getUserEmailError?.() || "");
       const cachedData = !force ? api.getCachedData() : null;
       const nextData = cachedData || (await api.readAllData());
       const finalEmail = api.getUserEmail() || resolvedEmail || "";
       setUserEmail(finalEmail);
+      setUserGoogleSub(api.getUserGoogleSub?.() || "");
       setEmailLookupError(api.getUserEmailError?.() || "");
       setData((current) => ({
         ...current,
@@ -4214,9 +4232,10 @@ export default function App() {
   }
 
   const currentUserEmail = userEmail || api.getUserEmail();
-  const access = accessForUser(data.roles, currentUserEmail);
+  const currentUserGoogleSub = userGoogleSub || api.getUserGoogleSub?.() || "";
+  const access = accessForUser(data.roles, currentUserEmail, currentUserGoogleSub);
   const isManager = isManagerAccess(access);
-  const canEditManagerNotes = canEditManagerComment(access) || hasTeamLeadRole(data.roles, currentUserEmail);
+  const canEditManagerNotes = canEditManagerComment(access) || hasTeamLeadRole(data.roles, currentUserEmail, currentUserGoogleSub);
   const scopedData = scopedDataForAccess(data, access);
   const availableTabs = isManager ? TABS : TABS.filter((tab) => !["Teams", "Monthly Goals"].includes(tab));
 
@@ -4253,6 +4272,7 @@ export default function App() {
         onUpdateDeal={updateDealFromTeamView}
         canEditManagerNotes={canEditManagerNotes}
         access={access}
+        googleSub={currentUserGoogleSub}
         emailLookupError={emailLookupError}
       />
     ),
