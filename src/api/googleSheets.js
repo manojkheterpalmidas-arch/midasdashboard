@@ -46,7 +46,7 @@ function normalizeRoleValue(role) {
 
 let tokenClient = null;
 let accessToken = sessionStorage.getItem("midas-google-access-token") || "";
-let signedInEmail = "";
+let signedInEmail = sessionStorage.getItem("midas-google-email") || "";
 let spreadsheetId = extractSpreadsheetId(import.meta.env.VITE_DEFAULT_SPREADSHEET_ID || localStorage.getItem("midas-google-spreadsheet-id") || "");
 let allDataCache = null;
 const sheetCache = {};
@@ -68,7 +68,7 @@ export function setSpreadsheetId(nextId) {
 }
 
 export function getUserEmail() {
-  return signedInEmail;
+  return signedInEmail || sessionStorage.getItem("midas-google-email") || "";
 }
 
 async function refreshUserEmail() {
@@ -78,6 +78,7 @@ async function refreshUserEmail() {
       headers: { Authorization: `Bearer ${accessToken}` }
     }).then((res) => res.json());
     signedInEmail = profile.email || "";
+    if (signedInEmail) sessionStorage.setItem("midas-google-email", signedInEmail);
   } catch {
     signedInEmail = "";
   }
@@ -171,6 +172,7 @@ export async function signIn() {
               headers: { Authorization: `Bearer ${accessToken}` }
             }).then((res) => res.json());
             signedInEmail = profile.email || "";
+            if (signedInEmail) sessionStorage.setItem("midas-google-email", signedInEmail);
           } catch {
             signedInEmail = "";
           }
@@ -190,6 +192,7 @@ export function signOut() {
   signedInEmail = "";
   sessionStorage.removeItem("midas-google-access-token");
   sessionStorage.removeItem("midas-google-session");
+  sessionStorage.removeItem("midas-google-email");
 }
 
 function sleep(ms) {

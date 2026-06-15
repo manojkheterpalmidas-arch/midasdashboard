@@ -580,6 +580,11 @@ function canEditManagerComment(access) {
   return normalizeRoleValue(access?.role) === "Team Lead";
 }
 
+function hasTeamLeadRole(roles = [], email = "") {
+  const normalizedEmail = normalizeEmail(email);
+  return roles.some((role) => normalizeEmail(role.email) === normalizedEmail && normalizeRoleValue(role.role) === "Team Lead");
+}
+
 function canUseTeam(access, teamId) {
   if (isManagerAccess(access)) return true;
   if (access?.role === "Team Member") return access.teamId === teamId;
@@ -4200,7 +4205,7 @@ export default function App() {
   const currentUserEmail = api.getUserEmail();
   const access = accessForUser(data.roles, currentUserEmail);
   const isManager = isManagerAccess(access);
-  const canEditManagerNotes = canEditManagerComment(access);
+  const canEditManagerNotes = canEditManagerComment(access) || hasTeamLeadRole(data.roles, currentUserEmail);
   const scopedData = scopedDataForAccess(data, access);
   const availableTabs = isManager ? TABS : TABS.filter((tab) => !["Teams", "Monthly Goals"].includes(tab));
 
