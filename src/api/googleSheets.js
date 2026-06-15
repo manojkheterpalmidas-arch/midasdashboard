@@ -254,10 +254,11 @@ function headerNeedsUpgrade(values = [], columns = []) {
 async function ensureSheetHeaderColumns(sheetName, values = []) {
   const columns = SHEET_COLUMNS[sheetName];
   if (!columns || !headerNeedsUpgrade(values, columns)) return;
-  const range = encodeURIComponent(`${sheetName}!A1:${columnName(columns.length)}1`);
+  const headerRange = `${sheetName}!A1:${columnName(columns.length)}1`;
+  const range = encodeURIComponent(headerRange);
   await sheetsFetch(`/values/${range}?valueInputOption=USER_ENTERED`, {
     method: "PUT",
-    body: JSON.stringify({ range: `${sheetName}!A1`, majorDimension: "ROWS", values: [columns] })
+    body: JSON.stringify({ range: headerRange, majorDimension: "ROWS", values: [columns] })
   });
 }
 
