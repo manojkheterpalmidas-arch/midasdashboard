@@ -3213,7 +3213,7 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
           ) : null}
           {!access?.email && !googleSub ? (
             <button type="button" className="rounded-full bg-midas-navy px-3 py-1 text-xs font-bold text-white" onClick={onReconnectIdentity}>
-              Reconnect Google identity
+              Reconnect with Google
             </button>
           ) : null}
         </div>
@@ -4163,8 +4163,8 @@ export default function App() {
 
   async function reconnectGoogleIdentity() {
     try {
-      await api.login();
-      await refreshData(true);
+      await api.logout();
+      api.redirectLogin();
     } catch (error) {
       alert(`Google identity reconnect failed: ${error.message || "Please try signing in again."}`);
     }
