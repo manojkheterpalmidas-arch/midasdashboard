@@ -39,6 +39,8 @@ const STATUSES = ["Open", "Closed", "Lost", "Long-Term"];
 const GOAL_TYPES = ["Responsibility Goal", "Challenge Goal"];
 const CURRENCIES = ["GBP", "EUR", "PLN", "USD"];
 const PRIVILEGED_ROLES = ["Team Lead", "Manager"];
+const MANAGER_COMMENT_PASSWORD = "9999";
+const MANAGER_COMMENT_UNLOCK_KEY = "midas-manager-comment-unlocked";
 const CHART_COLORS = ["#16825d", "#1d4f8f", "#d18b16", "#c24136", "#6d5bd0"];
 const RADIAN = Math.PI / 180;
 const TABS = ["Dashboard", "Teams", "Deals", "Monthly Goals", "Team View", "Team Performance", "Individual Performance", "Summary"];
@@ -3004,7 +3006,7 @@ function InlineDealComment({ deal, field, onSave, placeholder, disabled = false 
   const [value, setValue] = useState(initialValue);
   const [saving, setSaving] = useState(false);
   const dirty = value !== initialValue;
-  const disabledLabel = field === "repComment" ? "Edit in Deals tab" : "Team Lead only";
+  const disabledLabel = field === "repComment" ? "Edit in Deals tab" : "Unlock with manager password";
 
   useEffect(() => {
     setValue(initialValue);
@@ -3114,7 +3116,18 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
   );
 }
 
-function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear, onUpdateDeal, canEditManagerNotes = false, access, googleSub = "", emailLookupError = "", onReconnectIdentity }) {
+function TeamView({
+  data,
+  selectedYear,
+  selectedMonth,
+  selectedPeriodType,
+  selectedQuarter,
+  selectedHalfYear,
+  onUpdateDeal,
+  canEditManagerNotes = false,
+  onUnlockManagerNotes,
+  onLockManagerNotes
+}) {
   const [teamId, setTeamId] = useStoredState("midas-team-view-team-id", data.teams[0]?.id || "");
   const [year, setYear] = useStoredState("midas-team-view-year", selectedYear);
   const [month, setMonth] = useStoredState("midas-team-view-month", selectedMonth);
@@ -3125,6 +3138,7 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
   const [repName, setRepName] = useStoredState("midas-team-view-rep", "All reps");
   const [currencyView, setCurrencyView] = useStoredState("midas-team-view-currency-view", "Local");
   const [dealTableView, setDealTableView] = useStoredState("midas-team-view-deal-table-view", "Open only");
+  const [managerPassword, setManagerPassword] = useState("");
   const team = getTeam(data.teams, teamId) || data.teams[0];
   const useKrw = currencyView === "KRW";
   const currency = useKrw ? "KRW" : team?.currency || "GBP";
@@ -3196,26 +3210,42 @@ function TeamView({ data, selectedYear, selectedMonth, selectedPeriodType, selec
     row["Cumulative Goal"] = runningGoal;
   });
 
+  function submitManagerPassword(event) {
+    event.preventDefault();
+    const result = onUnlockManagerNotes?.(managerPassword);
+    if (result) {
+      setManagerPassword("");
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div>
         <h2 className="section-title">Team View</h2>
         <p className="text-sm text-slate-500">Team-level working view for {label}, shown in {useKrw ? "KRW" : "local currency"}.</p>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
-          <span className="rounded-full bg-slate-100 px-3 py-1">Signed in: {access?.email || "unknown"}</span>
-          <span className="rounded-full bg-slate-100 px-3 py-1">Google ID: {googleSub || access?.googleSub || "unknown"}</span>
-          <span className="rounded-full bg-slate-100 px-3 py-1">Role: {access?.role || "No Access"}</span>
+        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-midas-line bg-white px-3 py-3 text-xs font-bold shadow-sm">
           <span className={`rounded-full px-3 py-1 ${canEditManagerNotes ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-            Manager Comment: {canEditManagerNotes ? "editable" : "locked"}
+            Manager comments: {canEditManagerNotes ? "unlocked" : "locked"}
           </span>
-          {!access?.email && emailLookupError ? (
-            <span className="rounded-full bg-red-100 px-3 py-1 text-red-700">Email lookup: {emailLookupError}</span>
-          ) : null}
-          {!access?.email && !googleSub ? (
-            <button type="button" className="rounded-full bg-midas-navy px-3 py-1 text-xs font-bold text-white" onClick={onReconnectIdentity}>
-              Reconnect with Google
+          {canEditManagerNotes ? (
+            <button type="button" className="btn-secondary rounded-full px-3 py-1 text-xs" onClick={onLockManagerNotes}>
+              Lock comments
             </button>
-          ) : null}
+          ) : (
+            <form className="flex flex-wrap items-center gap-2" onSubmit={submitManagerPassword}>
+              <input
+                className="h-8 w-36 rounded-full border border-midas-line px-3 text-xs font-bold outline-none focus:border-midas-blue"
+                type="password"
+                inputMode="numeric"
+                value={managerPassword}
+                placeholder="Password"
+                onChange={(event) => setManagerPassword(event.target.value)}
+              />
+              <button type="submit" className="rounded-full bg-midas-navy px-3 py-2 text-xs font-bold text-white">
+                Unlock comments
+              </button>
+            </form>
+          )}
         </div>
       </div>
       <div className="panel p-4">
@@ -4093,6 +4123,9 @@ export default function App() {
   const [userEmail, setUserEmail] = useState(() => api.getUserEmail());
   const [userGoogleSub, setUserGoogleSub] = useState(() => api.getUserGoogleSub?.() || "");
   const [emailLookupError, setEmailLookupError] = useState(() => api.getUserEmailError?.() || "");
+  const [managerCommentUnlocked, setManagerCommentUnlocked] = useState(
+    () => sessionStorage.getItem(MANAGER_COMMENT_UNLOCK_KEY) === "true"
+  );
 
   useEffect(() => {
     async function boot() {
@@ -4168,6 +4201,21 @@ export default function App() {
     } catch (error) {
       alert(`Google identity reconnect failed: ${error.message || "Please try signing in again."}`);
     }
+  }
+
+  function unlockManagerNotes(password) {
+    if (String(password).trim() !== MANAGER_COMMENT_PASSWORD) {
+      alert("Incorrect manager comment password.");
+      return false;
+    }
+    sessionStorage.setItem(MANAGER_COMMENT_UNLOCK_KEY, "true");
+    setManagerCommentUnlocked(true);
+    return true;
+  }
+
+  function lockManagerNotes() {
+    sessionStorage.removeItem(MANAGER_COMMENT_UNLOCK_KEY);
+    setManagerCommentUnlocked(false);
   }
 
   function setPreparedBy(preparedBy) {
@@ -4249,7 +4297,7 @@ export default function App() {
   const currentUserGoogleSub = userGoogleSub || api.getUserGoogleSub?.() || "";
   const access = accessForUser(data.roles, currentUserEmail, currentUserGoogleSub);
   const isManager = isManagerAccess(access);
-  const canEditManagerNotes = canEditManagerComment(access) || hasTeamLeadRole(data.roles, currentUserEmail, currentUserGoogleSub);
+  const canEditManagerNotes = managerCommentUnlocked;
   const scopedData = scopedDataForAccess(data, access);
   const availableTabs = isManager ? TABS : TABS.filter((tab) => !["Teams", "Monthly Goals"].includes(tab));
 
@@ -4258,7 +4306,7 @@ export default function App() {
     if (!existing) throw new Error("Deal was not found.");
     if (!canUseRecord(access, existing)) throw new Error("You can only update deals for your assigned team/rep.");
     if (Object.prototype.hasOwnProperty.call(patch, "managerComment") && !canEditManagerNotes) {
-      throw new Error("Only the Team Lead role can update manager comments.");
+      throw new Error("Unlock manager comments with the local password first.");
     }
     const nextDeal = normalizeDeal({ ...existing, ...patch });
     const saved = await api.updateDeal(existing.id, nextDeal);
@@ -4283,12 +4331,6 @@ export default function App() {
         selectedPeriodType={selectedPeriodType}
         selectedQuarter={selectedQuarter}
         selectedHalfYear={selectedHalfYear}
-        onUpdateDeal={updateDealFromTeamView}
-        canEditManagerNotes={canEditManagerNotes}
-        access={access}
-        googleSub={currentUserGoogleSub}
-        emailLookupError={emailLookupError}
-        onReconnectIdentity={reconnectGoogleIdentity}
       />
     ),
     Teams: <TeamsPage data={data} refreshData={refreshData} />,
@@ -4302,6 +4344,10 @@ export default function App() {
         selectedPeriodType={selectedPeriodType}
         selectedQuarter={selectedQuarter}
         selectedHalfYear={selectedHalfYear}
+        onUpdateDeal={updateDealFromTeamView}
+        canEditManagerNotes={canEditManagerNotes}
+        onUnlockManagerNotes={unlockManagerNotes}
+        onLockManagerNotes={lockManagerNotes}
       />
     ),
     "Team Performance": <TeamPerformancePage data={scopedData} />,
