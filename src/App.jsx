@@ -742,25 +742,29 @@ function applyRatesToTeams(teams = [], settings = {}) {
   }));
 }
 
-function eurReferenceRate(teams) {
-  const ee1 = teams.find((team) => String(team.teamName || "").trim().toLowerCase() === "ee1");
-  const eurTeam = ee1 || teams.find((team) => String(team.currency || "").toUpperCase() === "EUR");
-  return num(eurTeam?.krwRate) || 1;
-}
-
-function metricsToEur(metrics, eurRate) {
-  const convert = (value) => (eurRate > 0 ? num(value) / eurRate : 0);
+// Scale every monetary field of a metrics object by a factor (e.g. to convert
+// team-local metrics into a chosen display currency). Ratios are left intact.
+function scaleMetrics(metrics, factor = 1) {
+  const f = (value) => num(value) * factor;
   return {
     ...metrics,
-    target: convert(metrics.target),
-    closed: convert(metrics.closed),
-    min: convert(metrics.min),
-    max: convert(metrics.max),
-    achievementMin: convert(metrics.achievementMin),
-    achievementMax: convert(metrics.achievementMax),
-    gapMin: convert(metrics.gapMin),
-    gapMax: convert(metrics.gapMax)
+    target: f(metrics.target),
+    closed: f(metrics.closed),
+    min: f(metrics.min),
+    max: f(metrics.max),
+    achievementMin: f(metrics.achievementMin),
+    achievementMax: f(metrics.achievementMax),
+    gapMin: f(metrics.gapMin),
+    gapMax: f(metrics.gapMax)
   };
+}
+
+// Convert KRW-base aggregate metrics into any display currency. Multi-team
+// totals are summed in KRW, then divided by the display currency's KRW rate.
+function krwToCurrency(metrics, currency, rates = {}) {
+  if (String(currency || "").toUpperCase() === "KRW") return metrics;
+  const rate = rateOf(currency, rates);
+  return scaleMetrics(metrics, rate > 0 ? 1 / rate : 1);
 }
 
 function dealClosedAmount(deal) {
@@ -771,13 +775,21 @@ function amountForView(amount, team, useKrw) {
   return useKrw ? toKrw(amount, team) : num(amount);
 }
 
-function goalInputToLocalAmount(value, amountCurrency, team) {
-  const amount = num(value);
-  if (amountCurrency === "KRW") {
-    const rate = num(team?.krwRate);
-    return rate > 0 ? amount / rate : 0;
-  }
-  return amount;
+// KRW per 1 unit of a currency, using the central rates map. KRW is always 1.
+function rateOf(currency, rates = {}) {
+  if (String(currency || "").toUpperCase() === "KRW") return 1;
+  return num(rates[currency]);
+}
+
+// Convert a value from one currency to another via their KRW rates. Falls back
+// to the raw value if either rate is missing so amounts are never silently zeroed.
+function convertBetween(value, fromCurrency, toCurrency, rates = {}) {
+  if (value === "" || value === null || value === undefined) return value;
+  if (fromCurrency === toCurrency) return num(value);
+  const from = rateOf(fromCurrency, rates);
+  const to = rateOf(toCurrency, rates);
+  if (from <= 0 || to <= 0) return num(value);
+  return (num(value) * from) / to;
 }
 
 function matchesScope(item, scope) {
@@ -1379,7 +1391,7 @@ function TeamForm({ initialTeam, onSave, onCancel }) {
   );
 }
 
-function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onCancel }) {
+function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onCancel, rates = {} }) {
   const firstTeam = teams[0];
   const [form, setForm] = useState(
     initialDeal || {
@@ -1404,11 +1416,13 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
       nextAction: ""
     }
   );
-  const [amountCurrency, setAmountCurrency] = useState("Local");
+  const initialTeam = getTeam(teams, initialDeal?.teamId || firstTeam?.id);
+  // Entry currency for the amount fields — any of KRW/GBP/EUR/USD, not tied to
+  // the team's home currency. Defaults to the team currency (stored values are
+  // already in that currency, so editing shows them unchanged).
+  const [amountCurrency, setAmountCurrency] = useState(initialTeam?.currency || "GBP");
   const selectedTeam = getTeam(teams, form.teamId);
-  const teamCurrency = selectedTeam?.currency || "Local";
-  const teamRate = num(selectedTeam?.krwRate) || 0;
-  const amountCurrencyLabel = amountCurrency === "KRW" ? "KRW" : teamCurrency;
+  const teamCurrency = selectedTeam?.currency || "GBP";
 
   function update(field, value) {
     setForm((current) => {
@@ -1420,15 +1434,13 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
     });
   }
 
-  // Switch the entry currency for the amount fields, converting the values
-  // already typed so the displayed numbers stay meaningful.
+  // Switch the entry currency, converting the values already typed so the
+  // displayed numbers keep their real-world value.
   function changeAmountCurrency(next) {
     if (next === amountCurrency) return;
     const convert = (value) => {
-      if (value === "" || value === null || value === undefined || teamRate <= 0) return value;
-      if (amountCurrency === "Local" && next === "KRW") return Math.round(num(value) * teamRate);
-      if (amountCurrency === "KRW" && next === "Local") return num(value) / teamRate;
-      return value;
+      const result = convertBetween(value, amountCurrency, next, rates);
+      return result === "" ? "" : Math.round(num(result) * 100) / 100;
     };
     setForm((current) => ({
       ...current,
@@ -1439,21 +1451,25 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
     setAmountCurrency(next);
   }
 
-  // Live equivalent in the other currency, shown under each amount field.
+  // Live KRW equivalent (the company currency) shown under each amount field.
   function amountEquivalent(value) {
-    if (value === "" || value === null || value === undefined || teamRate <= 0) return null;
-    if (amountCurrency === "KRW") return `≈ ${formatMoney(num(value) / teamRate, teamCurrency)}`;
-    return `≈ ${formatMoney(num(value) * teamRate, "KRW")}`;
+    if (value === "" || value === null || value === undefined) return null;
+    if (amountCurrency === "KRW") return null;
+    const krw = convertBetween(value, amountCurrency, "KRW", rates);
+    if (krw === "" || num(krw) <= 0) return null;
+    return `≈ ${formatMoney(krw, "KRW")}`;
   }
 
   function submit(event) {
     event.preventDefault();
+    // Stored amounts are always in the team's home currency.
+    const toLocal = (value) =>
+      value === "" ? "" : convertBetween(value, amountCurrency, teamCurrency, rates);
     const converted = {
       ...form,
-      minAmount: goalInputToLocalAmount(form.minAmount, amountCurrency, selectedTeam),
-      maxAmount: goalInputToLocalAmount(form.maxAmount, amountCurrency, selectedTeam),
-      closedAmount:
-        form.closedAmount === "" ? "" : goalInputToLocalAmount(form.closedAmount, amountCurrency, selectedTeam)
+      minAmount: toLocal(form.minAmount),
+      maxAmount: toLocal(form.maxAmount),
+      closedAmount: toLocal(form.closedAmount)
     };
     onSave(normalizeDeal({ ...converted, id: form.id || createId("deal") }));
   }
@@ -1524,20 +1540,24 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
         <div>
           <label className="label">Amount entered in</label>
           <select className="field" value={amountCurrency} onChange={(e) => changeAmountCurrency(e.target.value)}>
-            <option value="Local">{`Team currency (${teamCurrency})`}</option>
-            <option value="KRW">KRW (₩)</option>
+            {CURRENCIES.map((code) => (
+              <option key={code} value={code}>
+                {currencySymbol(code)} {code}
+                {code === teamCurrency ? " (team)" : ""}
+              </option>
+            ))}
           </select>
-          <p className="mt-1 text-xs font-medium text-slate-400">Amounts are stored in {teamCurrency}.</p>
+          <p className="mt-1 text-xs font-medium text-slate-400">Stored in {teamCurrency} (team currency).</p>
         </div>
         <div>
-          <label className="label">Min amount ({amountCurrencyLabel})</label>
+          <label className="label">Min amount ({amountCurrency})</label>
           <input type="number" min="0" step="any" className="field" value={form.minAmount} onChange={(e) => update("minAmount", e.target.value)} />
           {amountEquivalent(form.minAmount) ? (
             <p className="mt-1 text-xs font-medium text-slate-400">{amountEquivalent(form.minAmount)}</p>
           ) : null}
         </div>
         <div>
-          <label className="label">Max amount ({amountCurrencyLabel})</label>
+          <label className="label">Max amount ({amountCurrency})</label>
           <input type="number" min="0" step="any" className="field" value={form.maxAmount} onChange={(e) => update("maxAmount", e.target.value)} />
           {amountEquivalent(form.maxAmount) ? (
             <p className="mt-1 text-xs font-medium text-slate-400">{amountEquivalent(form.maxAmount)}</p>
@@ -1571,7 +1591,7 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
           </select>
         </div>
         <div>
-          <label className="label">Closed amount ({amountCurrencyLabel})</label>
+          <label className="label">Closed amount ({amountCurrency})</label>
           <input
             type="number"
             min="0"
@@ -1611,7 +1631,7 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
   );
 }
 
-function BulkDealForm({ teams, selectedYear, selectedMonth, onSave, onCancel, saving = false }) {
+function BulkDealForm({ teams, selectedYear, selectedMonth, onSave, onCancel, saving = false, rates = {} }) {
   const firstTeam = teams[0];
   const [teamId, setTeamId] = useState(firstTeam?.id || "");
   const [repName, setRepName] = useState(firstTeam?.reps?.[0] || "");
@@ -1622,13 +1642,14 @@ function BulkDealForm({ teams, selectedYear, selectedMonth, onSave, onCancel, sa
   const [status, setStatus] = useState("Open");
   const [temperature, setTemperature] = useState("Medium");
   const [probability, setProbability] = useState(60);
-  const [amountCurrency, setAmountCurrency] = useState("Local");
+  const [amountCurrency, setAmountCurrency] = useState(firstTeam?.currency || "GBP");
   const [defaultProduct, setDefaultProduct] = useState("");
   const [rows, setRows] = useState(() =>
     Array.from({ length: 12 }, () => ({ companyName: "", amount: "", maxAmount: "", product: "", category: "", comments: "" }))
   );
   const team = getTeam(teams, teamId);
-  const amountCurrencyLabel = amountCurrency === "KRW" ? "KRW" : team?.currency || "Local";
+  const teamCurrency = team?.currency || "GBP";
+  const amountCurrencyLabel = amountCurrency;
   const fields = ["companyName", "amount", "maxAmount", "product", "category", "comments"];
 
   function updateRow(index, field, value) {
@@ -1681,8 +1702,8 @@ function BulkDealForm({ teams, selectedYear, selectedMonth, onSave, onCancel, sa
     const deals = rows
       .filter((row) => row.companyName.trim() && row.amount !== "")
       .map((row) => {
-        const localAmount = goalInputToLocalAmount(row.amount, amountCurrency, team);
-        const localMax = row.maxAmount === "" ? localAmount : goalInputToLocalAmount(row.maxAmount, amountCurrency, team);
+        const localAmount = num(convertBetween(row.amount, amountCurrency, teamCurrency, rates));
+        const localMax = row.maxAmount === "" ? localAmount : num(convertBetween(row.maxAmount, amountCurrency, teamCurrency, rates));
         const category = CATEGORIES.includes(row.category) ? row.category : defaultCategory;
         return {
           id: createId("deal"),
@@ -1783,9 +1804,14 @@ function BulkDealForm({ teams, selectedYear, selectedMonth, onSave, onCancel, sa
         <div>
           <label className="label">Amount currency</label>
           <select className="field" value={amountCurrency} onChange={(e) => setAmountCurrency(e.target.value)}>
-            <option>Local</option>
-            <option>KRW</option>
+            {CURRENCIES.map((code) => (
+              <option key={code} value={code}>
+                {currencySymbol(code)} {code}
+                {code === teamCurrency ? " (team)" : ""}
+              </option>
+            ))}
           </select>
+          <p className="mt-1 text-xs font-medium text-slate-400">Saved in {teamCurrency} (team currency).</p>
         </div>
         <div>
           <label className="label">Default product</label>
@@ -1850,7 +1876,7 @@ function BulkDealForm({ teams, selectedYear, selectedMonth, onSave, onCancel, sa
   );
 }
 
-function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, onSave, onCancel, saving = false }) {
+function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, onSave, onCancel, saving = false, rates = {} }) {
   const firstTeam = teams[0];
   const [form, setForm] = useState(
     initialGoal || {
@@ -1863,11 +1889,13 @@ function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, o
       targetAmount: 0
     }
   );
-  const [amountCurrency, setAmountCurrency] = useState("Local");
+  const initialTeam = getTeam(teams, initialGoal?.teamId || firstTeam?.id);
+  const [amountCurrency, setAmountCurrency] = useState(initialTeam?.currency || "GBP");
   const [targetInput, setTargetInput] = useState(initialGoal?.targetAmount ?? 0);
   const selectedTeam = getTeam(teams, form.teamId);
-  const localTargetAmount = goalInputToLocalAmount(targetInput, amountCurrency, selectedTeam);
-  const targetCurrencyLabel = amountCurrency === "KRW" ? "KRW" : selectedTeam?.currency || "Local";
+  const teamCurrency = selectedTeam?.currency || "GBP";
+  const localTargetAmount = num(convertBetween(targetInput, amountCurrency, teamCurrency, rates));
+  const targetCurrencyLabel = amountCurrency;
 
   function update(field, value) {
     setForm((current) => {
@@ -1878,9 +1906,10 @@ function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, o
   }
 
   function changeAmountCurrency(nextCurrency) {
-    const preservedLocalAmount = localTargetAmount;
+    if (nextCurrency === amountCurrency) return;
+    const converted = convertBetween(targetInput, amountCurrency, nextCurrency, rates);
     setAmountCurrency(nextCurrency);
-    setTargetInput(nextCurrency === "KRW" ? Math.round(toKrw(preservedLocalAmount, selectedTeam)) : Number(preservedLocalAmount.toFixed(2)));
+    setTargetInput(converted === "" ? "" : Math.round(num(converted) * 100) / 100);
   }
 
   function submit(event) {
@@ -1946,8 +1975,12 @@ function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, o
         <div>
           <label className="label">Amount currency</label>
           <select className="field" value={amountCurrency} onChange={(e) => changeAmountCurrency(e.target.value)}>
-            <option>Local</option>
-            <option>KRW</option>
+            {CURRENCIES.map((code) => (
+              <option key={code} value={code}>
+                {currencySymbol(code)} {code}
+                {code === teamCurrency ? " (team)" : ""}
+              </option>
+            ))}
           </select>
         </div>
         <div>
@@ -1971,16 +2004,17 @@ function GoalForm({ teams, initialGoal, selectedYear, selectedMonth, goalType, o
   );
 }
 
-function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel, saving = false }) {
+function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel, saving = false, rates = {} }) {
   const firstTeam = teams[0];
   const [teamId, setTeamId] = useState(firstTeam?.id || "");
   const [repName, setRepName] = useState(firstTeam?.reps?.[0] || "");
   const [year, setYear] = useState(selectedYear);
   const [type, setType] = useState(goalType);
-  const [amountCurrency, setAmountCurrency] = useState("Local");
+  const [amountCurrency, setAmountCurrency] = useState(firstTeam?.currency || "GBP");
   const [grid, setGrid] = useState({});
   const team = getTeam(teams, teamId);
-  const targetCurrencyLabel = amountCurrency === "KRW" ? "KRW" : team?.currency || "Local";
+  const teamCurrency = team?.currency || "GBP";
+  const targetCurrencyLabel = amountCurrency;
 
   function setAmount(month, category, value) {
     setGrid((current) => ({ ...current, [`${month}-${category}`]: value }));
@@ -2034,7 +2068,7 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel, saving 
           month,
           category,
           goalType: type,
-          targetAmount: goalInputToLocalAmount(grid[`${month}-${category}`], amountCurrency, team)
+          targetAmount: num(convertBetween(grid[`${month}-${category}`], amountCurrency, teamCurrency, rates))
         });
       });
     }
@@ -2088,8 +2122,12 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel, saving 
         <div>
           <label className="label">Amount currency</label>
           <select className="field" value={amountCurrency} onChange={(e) => setAmountCurrency(e.target.value)}>
-            <option>Local</option>
-            <option>KRW</option>
+            {CURRENCIES.map((code) => (
+              <option key={code} value={code}>
+                {currencySymbol(code)} {code}
+                {code === teamCurrency ? " (team)" : ""}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -2137,15 +2175,16 @@ function BulkGoalForm({ teams, selectedYear, goalType, onSave, onCancel, saving 
   );
 }
 
-function BulkAchievementForm({ teams, selectedYear, onSave, onCancel, saving = false }) {
+function BulkAchievementForm({ teams, selectedYear, onSave, onCancel, saving = false, rates = {} }) {
   const firstTeam = teams[0];
   const [teamId, setTeamId] = useState(firstTeam?.id || "");
   const [repName, setRepName] = useState(firstTeam?.reps?.[0] || "");
   const [year, setYear] = useState(selectedYear);
-  const [amountCurrency, setAmountCurrency] = useState("Local");
+  const [amountCurrency, setAmountCurrency] = useState(firstTeam?.currency || "GBP");
   const [grid, setGrid] = useState({});
   const team = getTeam(teams, teamId);
-  const achievementCurrencyLabel = amountCurrency === "KRW" ? "KRW" : team?.currency || "Local";
+  const teamCurrency = team?.currency || "GBP";
+  const achievementCurrencyLabel = amountCurrency;
 
   function setAmount(month, category, value) {
     setGrid((current) => ({ ...current, [`${month}-${category}`]: value }));
@@ -2191,7 +2230,7 @@ function BulkAchievementForm({ teams, selectedYear, onSave, onCancel, saving = f
       CATEGORIES.forEach((category) => {
         const rawAmount = grid[`${month}-${category}`];
         if (rawAmount === "" || rawAmount === undefined || rawAmount === null) return;
-        const localAmount = goalInputToLocalAmount(rawAmount, amountCurrency, team);
+        const localAmount = num(convertBetween(rawAmount, amountCurrency, teamCurrency, rates));
         rows.push({
           id: createId("deal"),
           teamId,
@@ -2258,8 +2297,12 @@ function BulkAchievementForm({ teams, selectedYear, onSave, onCancel, saving = f
         <div>
           <label className="label">Amount currency</label>
           <select className="field" value={amountCurrency} onChange={(e) => setAmountCurrency(e.target.value)}>
-            <option>Local</option>
-            <option>KRW</option>
+            {CURRENCIES.map((code) => (
+              <option key={code} value={code}>
+                {currencySymbol(code)} {code}
+                {code === teamCurrency ? " (team)" : ""}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -2320,9 +2363,9 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
   const [goalType, setGoalType] = useStoredState("midas-dashboard-goal-type", "Responsibility Goal");
   const [currencyView, setCurrencyView] = useStoredState("midas-dashboard-currency-view", "KRW");
   const { teams, deals, goals } = data;
-  const useKrw = currencyView === "KRW";
-  const displayCurrency = useKrw ? "KRW" : "EUR";
-  const eurRate = eurReferenceRate(teams);
+  const rates = ratesFromSettings(data.settings, teams);
+  const displayCurrency = currencyView;
+  const toDisplay = (metrics) => krwToCurrency(metrics, displayCurrency, rates);
   const baseScope = periodScope({
     year: selectedYear,
     periodType: selectedPeriodType,
@@ -2345,7 +2388,7 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
     useKrw: true,
     scope: baseScope
   });
-  const metrics = useKrw ? metricsKrw : metricsToEur(metricsKrw, eurRate);
+  const metrics = toDisplay(metricsKrw);
 
   const teamRows = teams.map((team) => {
     const itemMetricsKrw = calculateMetrics({
@@ -2356,7 +2399,7 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
       useKrw: true,
       scope: { ...baseScope, teamId: team.id }
     });
-    const itemMetrics = useKrw ? itemMetricsKrw : metricsToEur(itemMetricsKrw, eurRate);
+    const itemMetrics = toDisplay(itemMetricsKrw);
     return {
       id: team.id,
       team: team.teamName,
@@ -2382,7 +2425,7 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
       useKrw: true,
       scope: { ...baseScope, category }
     });
-    const categoryMetrics = useKrw ? categoryMetricsKrw : metricsToEur(categoryMetricsKrw, eurRate);
+    const categoryMetrics = toDisplay(categoryMetricsKrw);
     return {
       category,
       "Min Forecast": categoryMetrics.min,
@@ -2432,8 +2475,11 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
           <div>
             <label className="label">Currency view</label>
             <select className="field" value={displayCurrency} onChange={(e) => setCurrencyView(e.target.value)}>
-              <option>KRW</option>
-              <option>EUR</option>
+              {CURRENCIES.map((code) => (
+                <option key={code} value={code}>
+                  {currencySymbol(code)} {code}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -2609,6 +2655,7 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
   const [editing, setEditing] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [savingBulk, setSavingBulk] = useState(false);
+  const rates = ratesFromSettings(data.settings, data.teams);
   const [filters, setFilters] = useState({
     year: selectedYear,
     month: selectedMonth,
@@ -2804,6 +2851,7 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
             selectedMonth={selectedMonth}
             onSave={saveDeal}
             onCancel={() => setEditing(null)}
+            rates={rates}
           />
         </Modal>
       ) : null}
@@ -2816,6 +2864,7 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
             onSave={saveBulkDeals}
             onCancel={() => setBulkOpen(false)}
             saving={savingBulk}
+            rates={rates}
           />
         </Modal>
       ) : null}
@@ -2836,6 +2885,7 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
   const [savingGoal, setSavingGoal] = useState(false);
   const [savingBulk, setSavingBulk] = useState(false);
   const [savingAchievements, setSavingAchievements] = useState(false);
+  const rates = ratesFromSettings(data.settings, data.teams);
 
   async function saveGoal(goal) {
     setSavingGoal(true);
@@ -3124,6 +3174,7 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
             onSave={saveGoal}
             onCancel={() => setEditing(null)}
             saving={savingGoal}
+            rates={rates}
           />
         </Modal>
       ) : null}
@@ -3136,6 +3187,7 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
             onSave={saveBulk}
             onCancel={() => setBulkOpen(false)}
             saving={savingBulk}
+            rates={rates}
           />
         </Modal>
       ) : null}
@@ -3147,6 +3199,7 @@ function GoalsPage({ data, refreshData, selectedYear, selectedMonth }) {
             onSave={saveAchievementBulk}
             onCancel={() => setAchievementBulkOpen(false)}
             saving={savingAchievements}
+            rates={rates}
           />
         </Modal>
       ) : null}
@@ -3200,13 +3253,15 @@ function InlineDealComment({ deal, field, onSave, placeholder, disabled = false 
   );
 }
 
-function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = false, onSaveComment, canEditManagerNotes = false }) {
+function ForecastTable({ title, deals, team, currency, displayFactor = 1, includeClosed = false, onSaveComment, canEditManagerNotes = false }) {
   const openDeals = deals.filter((deal) => deal.status === "Open");
   const closedDeals = deals.filter((deal) => deal.status === "Closed");
   const totalMin = openDeals.reduce((sum, deal) => sum + num(deal.minAmount), 0);
   const totalMax = openDeals.reduce((sum, deal) => sum + num(deal.maxAmount), 0);
   const totalClosed = closedDeals.reduce((sum, deal) => sum + dealClosedAmount(deal), 0);
-  const displayAmount = (value) => (useKrw ? toKrw(value, team) : num(value));
+  // Deal amounts are stored in the team currency; scale them to the display currency.
+  const displayAmount = (value) => num(value) * displayFactor;
+  const showKrwReference = currency !== "KRW";
   const totalMinDisplay = displayAmount(totalMin);
   const totalMaxDisplay = displayAmount(totalMax);
   const totalClosedDisplay = displayAmount(totalClosed);
@@ -3217,10 +3272,10 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
     ...(includeClosed
       ? [{ header: "Status", render: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge> }]
       : []),
-    { header: useKrw ? "Min KRW" : "Min Amount", render: (row) => (row.status === "Open" ? formatMoney(displayAmount(row.minAmount), currency) : "-") },
-    { header: useKrw ? "Max KRW" : "Max Amount", render: (row) => (row.status === "Open" ? formatMoney(displayAmount(row.maxAmount), currency) : "-") },
+    { header: `Min (${currency})`, render: (row) => (row.status === "Open" ? formatMoney(displayAmount(row.minAmount), currency) : "-") },
+    { header: `Max (${currency})`, render: (row) => (row.status === "Open" ? formatMoney(displayAmount(row.maxAmount), currency) : "-") },
     ...(includeClosed
-      ? [{ header: useKrw ? "Closed KRW" : "Closed Amount", render: (row) => (row.status === "Closed" ? formatMoney(displayAmount(dealClosedAmount(row)), currency) : "-") }]
+      ? [{ header: `Closed (${currency})`, render: (row) => (row.status === "Closed" ? formatMoney(displayAmount(dealClosedAmount(row)), currency) : "-") }]
       : []),
     { header: "Probability", render: (row) => `${row.probability}%` },
     { header: "Temperature", render: (row) => <Badge tone={temperatureTone(row.temperature)}>{row.temperature}</Badge> },
@@ -3262,8 +3317,8 @@ function ForecastTable({ title, deals, team, currency, useKrw, includeClosed = f
         <div>Open Min: {formatMoney(totalMinDisplay, currency)}</div>
         <div>Open Max: {formatMoney(totalMaxDisplay, currency)}</div>
         {includeClosed ? <div>Closed: {formatMoney(totalClosedDisplay, currency)}</div> : null}
-        {!useKrw ? <div>Open Min KRW: {formatMoney(toKrw(totalMin, team), "KRW")}</div> : null}
-        {!useKrw ? <div>Open Max KRW: {formatMoney(toKrw(totalMax, team), "KRW")}</div> : null}
+        {showKrwReference ? <div>Open Min KRW: {formatMoney(toKrw(totalMin, team), "KRW")}</div> : null}
+        {showKrwReference ? <div>Open Max KRW: {formatMoney(toKrw(totalMax, team), "KRW")}</div> : null}
       </div>
     </div>
   );
@@ -3293,11 +3348,19 @@ function TeamView({
   const [dealTableView, setDealTableView] = useStoredState("midas-team-view-deal-table-view", "Open only");
   const [managerPassword, setManagerPassword] = useState("");
   const team = getTeam(data.teams, teamId) || data.teams[0];
-  const useKrw = currencyView === "KRW";
-  const currency = useKrw ? "KRW" : team?.currency || "GBP";
+  const rates = ratesFromSettings(data.settings, data.teams);
+  const teamCurrency = team?.currency || "GBP";
+  // "Local" shows the team's own currency; otherwise show the picked currency.
+  const currency = currencyView === "Local" ? teamCurrency : currencyView;
+  // Team View is single-team, so all amounts are in the team currency. Compute
+  // metrics in local currency, then scale them into the chosen display currency.
+  const displayFactor = num(convertBetween(1, teamCurrency, currency, rates)) || 1;
   const scope = periodScope({ year, periodType, month, quarter, halfYear, teamId: team?.id, repName });
   const label = periodLabel({ year, periodType, month, quarter, halfYear });
-  const metrics = calculateMetrics({ teams: data.teams, deals: data.deals, goals: data.goals, goalType, useKrw, scope });
+  const metrics = scaleMetrics(
+    calculateMetrics({ teams: data.teams, deals: data.deals, goals: data.goals, goalType, useKrw: false, scope }),
+    displayFactor
+  );
   const includeClosedDeals = dealTableView === "Open + Closed";
   const tableDeals = data.deals.filter((deal) => {
     if (!matchesScope(deal, scope)) return false;
@@ -3306,14 +3369,17 @@ function TeamView({
   });
 
   const categoryRows = CATEGORIES.map((category) => {
-    const categoryMetrics = calculateMetrics({
-      teams: data.teams,
-      deals: data.deals,
-      goals: data.goals,
-      goalType,
-      useKrw,
-      scope: { ...scope, category }
-    });
+    const categoryMetrics = scaleMetrics(
+      calculateMetrics({
+        teams: data.teams,
+        deals: data.deals,
+        goals: data.goals,
+        goalType,
+        useKrw: false,
+        scope: { ...scope, category }
+      }),
+      displayFactor
+    );
     return { id: category, category, ...categoryMetrics };
   });
   categoryRows.push({ id: "Total", category: "Total", ...metrics });
@@ -3341,14 +3407,17 @@ function TeamView({
   const monthlySalesChart = periodType === "Monthly"
     ? []
     : scope.months.map((scopeMonth) => {
-        const monthMetrics = calculateMetrics({
-          teams: data.teams,
-          deals: data.deals,
-          goals: data.goals,
-          goalType,
-          useKrw,
-          scope: { ...scope, months: [scopeMonth] }
-        });
+        const monthMetrics = scaleMetrics(
+          calculateMetrics({
+            teams: data.teams,
+            deals: data.deals,
+            goals: data.goals,
+            goalType,
+            useKrw: false,
+            scope: { ...scope, months: [scopeMonth] }
+          }),
+          displayFactor
+        );
         runningSales += monthMetrics.closed;
         return {
           month: monthName(scopeMonth).slice(0, 3),
@@ -3375,7 +3444,7 @@ function TeamView({
     <div className="space-y-5">
       <div>
         <h2 className="section-title">Team View</h2>
-        <p className="text-sm text-slate-500">Team-level working view for {label}, shown in {useKrw ? "KRW" : "local currency"}.</p>
+        <p className="text-sm text-slate-500">Team-level working view for {label}, shown in {currencyView === "Local" ? `${teamCurrency} (team currency)` : currency}.</p>
         <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-midas-line bg-white px-3 py-3 text-xs font-bold shadow-sm">
           <span className={`rounded-full px-3 py-1 ${canEditManagerNotes ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
             Manager comments: {canEditManagerNotes ? "unlocked" : "locked"}
@@ -3486,8 +3555,12 @@ function TeamView({
           <div>
             <label className="label">Currency view</label>
             <select className="field" value={currencyView} onChange={(e) => setCurrencyView(e.target.value)}>
-              <option>Local</option>
-              <option>KRW</option>
+              <option value="Local">{`Team currency (${teamCurrency})`}</option>
+              {CURRENCIES.map((code) => (
+                <option key={code} value={code}>
+                  {currencySymbol(code)} {code}
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -3517,7 +3590,7 @@ function TeamView({
           title={`${category} Deals`}
           team={team}
           currency={currency}
-          useKrw={useKrw}
+          displayFactor={displayFactor}
           includeClosed={includeClosedDeals}
           onSaveComment={onUpdateDeal}
           canEditManagerNotes={canEditManagerNotes}
@@ -3624,7 +3697,9 @@ function IndividualPerformancePage({ data }) {
   const [goalType, setGoalType] = useStoredState("midas-individual-performance-goal-type", "Responsibility Goal");
   const includedTeams = data.teams.filter(isPerformanceTeam);
   const teamIds = includedTeams.map((team) => team.id);
-  const eurRate = eurReferenceRate(data.teams);
+  const [currencyView, setCurrencyView] = useStoredState("midas-individual-performance-currency-view", "EUR");
+  const rates = ratesFromSettings(data.settings, data.teams);
+  const displayCurrency = currencyView;
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentHalfYear = today.getMonth() < 6 ? 1 : 2;
@@ -3653,14 +3728,14 @@ function IndividualPerformancePage({ data }) {
 
   const rows = reps
     .map((rep) => {
-      const metrics = metricsToEur(calculateMetrics({
+      const metrics = krwToCurrency(calculateMetrics({
         teams: data.teams,
         deals: data.deals,
         goals: data.goals,
         goalType,
         useKrw: true,
         scope: { ...baseScope, repName: rep.repName }
-      }), eurRate);
+      }), displayCurrency, rates);
       const achievedPercent = metrics.target > 0 ? metrics.closed / metrics.target : 0;
       const remaining = Math.max(metrics.target - metrics.closed, 0);
       return {
@@ -3680,16 +3755,28 @@ function IndividualPerformancePage({ data }) {
         <div>
           <h2 className="section-title">Individual Performance</h2>
           <p className="text-sm text-slate-500">
-            Big-screen rep ranking for {label}, covering UK, EE1, EE2, and France only. Values shown in EUR using EE1's EUR rate.
+            Big-screen rep ranking for {label}, covering UK, EE1, EE2, and France only. Values shown in {displayCurrency} using central exchange rates.
           </p>
         </div>
-        <div className="w-full md:w-64">
-          <label className="label">Goal type</label>
-          <select className="field" value={goalType} onChange={(e) => setGoalType(e.target.value)}>
-            {GOAL_TYPES.map((type) => (
-              <option key={type}>{type}</option>
-            ))}
-          </select>
+        <div className="flex w-full flex-col gap-3 sm:flex-row md:w-auto">
+          <div className="w-full sm:w-56">
+            <label className="label">Goal type</label>
+            <select className="field" value={goalType} onChange={(e) => setGoalType(e.target.value)}>
+              {GOAL_TYPES.map((type) => (
+                <option key={type}>{type}</option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:w-40">
+            <label className="label">Currency view</label>
+            <select className="field" value={displayCurrency} onChange={(e) => setCurrencyView(e.target.value)}>
+              {CURRENCIES.map((code) => (
+                <option key={code} value={code}>
+                  {currencySymbol(code)} {code}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
       <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
@@ -3720,22 +3807,22 @@ function IndividualPerformancePage({ data }) {
                           <Cell key={entry.name} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(value) => formatChartMoney(value, "EUR")} />
+                      <Tooltip formatter={(value) => formatChartMoney(value, displayCurrency)} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
                 <div className="space-y-3">
                   <div>
                     <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Total Goal</div>
-                    <div className="text-xl font-extrabold text-midas-ink">{formatChartMoney(row.target, "EUR")}</div>
+                    <div className="text-xl font-extrabold text-midas-ink">{formatChartMoney(row.target, displayCurrency)}</div>
                   </div>
                   <div>
                     <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Achieved</div>
-                    <div className="text-xl font-extrabold text-green-700">{formatChartMoney(row.closed, "EUR")} ({formatPercent(row.achievedPercent)})</div>
+                    <div className="text-xl font-extrabold text-green-700">{formatChartMoney(row.closed, displayCurrency)} ({formatPercent(row.achievedPercent)})</div>
                   </div>
                   <div>
                     <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Remaining Target</div>
-                    <div className="text-xl font-extrabold text-red-700">{formatChartMoney(row.remaining, "EUR")} ({formatPercent(row.remainingPercent)})</div>
+                    <div className="text-xl font-extrabold text-red-700">{formatChartMoney(row.remaining, displayCurrency)} ({formatPercent(row.remainingPercent)})</div>
                   </div>
                 </div>
               </div>
@@ -3755,7 +3842,9 @@ function IndividualPerformancePage({ data }) {
 function TeamPerformancePage({ data }) {
   const [goalType, setGoalType] = useStoredState("midas-team-performance-goal-type", "Responsibility Goal");
   const includedTeams = data.teams.filter(isPerformanceTeam);
-  const eurRate = eurReferenceRate(data.teams);
+  const [currencyView, setCurrencyView] = useStoredState("midas-team-performance-currency-view", "EUR");
+  const rates = ratesFromSettings(data.settings, data.teams);
+  const displayCurrency = currencyView;
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentHalfYear = today.getMonth() < 6 ? 1 : 2;
@@ -3772,26 +3861,26 @@ function TeamPerformancePage({ data }) {
 
   const rows = includedTeams
     .map((team) => {
-      const metrics = metricsToEur(calculateMetrics({
+      const metrics = krwToCurrency(calculateMetrics({
         teams: data.teams,
         deals: data.deals,
         goals: data.goals,
         goalType,
         useKrw: true,
         scope: { ...baseScope, teamId: team.id }
-      }), eurRate);
+      }), displayCurrency, rates);
       const achievedPercent = metrics.target > 0 ? metrics.closed / metrics.target : 0;
       const remaining = Math.max(metrics.target - metrics.closed, 0);
       const reps = (team.reps || [])
         .map((repName) => {
-          const repMetrics = metricsToEur(calculateMetrics({
+          const repMetrics = krwToCurrency(calculateMetrics({
             teams: data.teams,
             deals: data.deals,
             goals: data.goals,
             goalType,
             useKrw: true,
             scope: { ...baseScope, teamId: team.id, repName }
-          }), eurRate);
+          }), displayCurrency, rates);
           const repPercent = repMetrics.target > 0 ? repMetrics.closed / repMetrics.target : 0;
           return {
             id: `${team.id}-${repName}`,
@@ -3820,16 +3909,28 @@ function TeamPerformancePage({ data }) {
         <div>
           <h2 className="section-title">Team Performance</h2>
           <p className="text-sm text-slate-500">
-            Big-screen team ranking for {label}, covering UK, EE1, EE2, and France only. Values shown in EUR using EE1's EUR rate.
+            Big-screen team ranking for {label}, covering UK, EE1, EE2, and France only. Values shown in {displayCurrency} using central exchange rates.
           </p>
         </div>
-        <div className="w-full md:w-64">
-          <label className="label">Goal type</label>
-          <select className="field" value={goalType} onChange={(e) => setGoalType(e.target.value)}>
-            {GOAL_TYPES.map((type) => (
-              <option key={type}>{type}</option>
-            ))}
-          </select>
+        <div className="flex w-full flex-col gap-3 sm:flex-row md:w-auto">
+          <div className="w-full sm:w-56">
+            <label className="label">Goal type</label>
+            <select className="field" value={goalType} onChange={(e) => setGoalType(e.target.value)}>
+              {GOAL_TYPES.map((type) => (
+                <option key={type}>{type}</option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:w-40">
+            <label className="label">Currency view</label>
+            <select className="field" value={displayCurrency} onChange={(e) => setCurrencyView(e.target.value)}>
+              {CURRENCIES.map((code) => (
+                <option key={code} value={code}>
+                  {currencySymbol(code)} {code}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
@@ -3860,7 +3961,7 @@ function TeamPerformancePage({ data }) {
                           <Cell key={entry.name} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(value) => formatChartMoney(value, "EUR")} />
+                      <Tooltip formatter={(value) => formatChartMoney(value, displayCurrency)} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -3868,15 +3969,15 @@ function TeamPerformancePage({ data }) {
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div>
                       <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Team Goal</div>
-                      <div className="text-lg font-extrabold text-midas-ink">{formatChartMoney(row.target, "EUR")}</div>
+                      <div className="text-lg font-extrabold text-midas-ink">{formatChartMoney(row.target, displayCurrency)}</div>
                     </div>
                     <div>
                       <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Achieved</div>
-                      <div className="text-lg font-extrabold text-green-700">{formatChartMoney(row.closed, "EUR")}</div>
+                      <div className="text-lg font-extrabold text-green-700">{formatChartMoney(row.closed, displayCurrency)}</div>
                     </div>
                     <div>
                       <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Remaining</div>
-                      <div className="text-lg font-extrabold text-red-700">{formatChartMoney(row.remaining, "EUR")}</div>
+                      <div className="text-lg font-extrabold text-red-700">{formatChartMoney(row.remaining, displayCurrency)}</div>
                     </div>
                   </div>
                   <div className="space-y-2 border-t border-midas-line pt-3">
@@ -3897,7 +3998,7 @@ function TeamPerformancePage({ data }) {
                             <div className={`h-full rounded-full ${barColor}`} style={{ width }} />
                           </div>
                           <div className="mt-1 text-xs font-semibold text-slate-500">
-                            {formatChartMoney(rep.closed, "EUR")} achieved / {formatChartMoney(rep.target, "EUR")} goal
+                            {formatChartMoney(rep.closed, displayCurrency)} achieved / {formatChartMoney(rep.target, displayCurrency)} goal
                           </div>
                         </div>
                       );
@@ -3927,9 +4028,9 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
   const [currencyView, setCurrencyView] = useStoredState("midas-summary-currency-view", "KRW");
   const [selectedTeamIds, setSelectedTeamIds] = useStoredState("midas-summary-team-ids", null);
   const [teamFilterOpen, setTeamFilterOpen] = useState(false);
-  const useKrw = currencyView === "KRW";
-  const displayCurrency = useKrw ? "KRW" : "EUR";
-  const eurRate = eurReferenceRate(data.teams);
+  const rates = ratesFromSettings(data.settings, data.teams);
+  const displayCurrency = currencyView;
+  const toDisplay = (metrics) => krwToCurrency(metrics, displayCurrency, rates);
   const allTeamIds = data.teams.map((team) => team.id);
   const activeTeamIds = selectedTeamIds ?? allTeamIds;
   const selectedTeams = data.teams.filter((team) => activeTeamIds.includes(team.id));
@@ -3949,7 +4050,7 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
     useKrw: true,
     scope: baseScope
   });
-  const metrics = useKrw ? metricsKrw : metricsToEur(metricsKrw, eurRate);
+  const metrics = toDisplay(metricsKrw);
 
   function toggleTeam(teamId) {
     setSelectedTeamIds((current) => {
@@ -3967,7 +4068,7 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
       useKrw: true,
       scope: { ...baseScope, teamId: team.id }
     });
-    const itemMetrics = useKrw ? itemMetricsKrw : metricsToEur(itemMetricsKrw, eurRate);
+    const itemMetrics = toDisplay(itemMetricsKrw);
     return { id: team.id, team, ...itemMetrics, status: riskFor(itemMetrics) };
   });
 
@@ -3980,7 +4081,7 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
       useKrw: true,
       scope: { ...baseScope, category }
     });
-    const itemMetrics = useKrw ? itemMetricsKrw : metricsToEur(itemMetricsKrw, eurRate);
+    const itemMetrics = toDisplay(itemMetricsKrw);
     return { id: category, category, ...itemMetrics };
   });
   categoryRows.push({ id: "Total", category: "Total", ...metrics });
@@ -4081,8 +4182,11 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
           <div>
             <label className="label">Currency view</label>
             <select className="field" value={displayCurrency} onChange={(e) => setCurrencyView(e.target.value)}>
-              <option>KRW</option>
-              <option>EUR</option>
+              {CURRENCIES.map((code) => (
+                <option key={code} value={code}>
+                  {currencySymbol(code)} {code}
+                </option>
+              ))}
             </select>
           </div>
         </div>
