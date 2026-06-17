@@ -1404,7 +1404,11 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
       nextAction: ""
     }
   );
+  const [amountCurrency, setAmountCurrency] = useState("Local");
   const selectedTeam = getTeam(teams, form.teamId);
+  const teamCurrency = selectedTeam?.currency || "Local";
+  const teamRate = num(selectedTeam?.krwRate) || 0;
+  const amountCurrencyLabel = amountCurrency === "KRW" ? "KRW" : teamCurrency;
 
   function update(field, value) {
     setForm((current) => {
@@ -1416,9 +1420,42 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
     });
   }
 
+  // Switch the entry currency for the amount fields, converting the values
+  // already typed so the displayed numbers stay meaningful.
+  function changeAmountCurrency(next) {
+    if (next === amountCurrency) return;
+    const convert = (value) => {
+      if (value === "" || value === null || value === undefined || teamRate <= 0) return value;
+      if (amountCurrency === "Local" && next === "KRW") return Math.round(num(value) * teamRate);
+      if (amountCurrency === "KRW" && next === "Local") return num(value) / teamRate;
+      return value;
+    };
+    setForm((current) => ({
+      ...current,
+      minAmount: convert(current.minAmount),
+      maxAmount: convert(current.maxAmount),
+      closedAmount: current.closedAmount === "" ? "" : convert(current.closedAmount)
+    }));
+    setAmountCurrency(next);
+  }
+
+  // Live equivalent in the other currency, shown under each amount field.
+  function amountEquivalent(value) {
+    if (value === "" || value === null || value === undefined || teamRate <= 0) return null;
+    if (amountCurrency === "KRW") return `≈ ${formatMoney(num(value) / teamRate, teamCurrency)}`;
+    return `≈ ${formatMoney(num(value) * teamRate, "KRW")}`;
+  }
+
   function submit(event) {
     event.preventDefault();
-    onSave(normalizeDeal({ ...form, id: form.id || createId("deal") }));
+    const converted = {
+      ...form,
+      minAmount: goalInputToLocalAmount(form.minAmount, amountCurrency, selectedTeam),
+      maxAmount: goalInputToLocalAmount(form.maxAmount, amountCurrency, selectedTeam),
+      closedAmount:
+        form.closedAmount === "" ? "" : goalInputToLocalAmount(form.closedAmount, amountCurrency, selectedTeam)
+    };
+    onSave(normalizeDeal({ ...converted, id: form.id || createId("deal") }));
   }
 
   return (
@@ -1485,12 +1522,26 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
           </select>
         </div>
         <div>
-          <label className="label">Min amount</label>
-          <input type="number" min="0" step="any" className="field" value={form.minAmount} onChange={(e) => update("minAmount", e.target.value)} />
+          <label className="label">Amount entered in</label>
+          <select className="field" value={amountCurrency} onChange={(e) => changeAmountCurrency(e.target.value)}>
+            <option value="Local">{`Team currency (${teamCurrency})`}</option>
+            <option value="KRW">KRW (₩)</option>
+          </select>
+          <p className="mt-1 text-xs font-medium text-slate-400">Amounts are stored in {teamCurrency}.</p>
         </div>
         <div>
-          <label className="label">Max amount</label>
+          <label className="label">Min amount ({amountCurrencyLabel})</label>
+          <input type="number" min="0" step="any" className="field" value={form.minAmount} onChange={(e) => update("minAmount", e.target.value)} />
+          {amountEquivalent(form.minAmount) ? (
+            <p className="mt-1 text-xs font-medium text-slate-400">{amountEquivalent(form.minAmount)}</p>
+          ) : null}
+        </div>
+        <div>
+          <label className="label">Max amount ({amountCurrencyLabel})</label>
           <input type="number" min="0" step="any" className="field" value={form.maxAmount} onChange={(e) => update("maxAmount", e.target.value)} />
+          {amountEquivalent(form.maxAmount) ? (
+            <p className="mt-1 text-xs font-medium text-slate-400">{amountEquivalent(form.maxAmount)}</p>
+          ) : null}
         </div>
         <div>
           <label className="label">Probability %</label>
@@ -1520,7 +1571,7 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
           </select>
         </div>
         <div>
-          <label className="label">Closed amount</label>
+          <label className="label">Closed amount ({amountCurrencyLabel})</label>
           <input
             type="number"
             min="0"
@@ -1530,6 +1581,9 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
             onChange={(e) => update("closedAmount", e.target.value)}
             placeholder="Uses max amount if closed"
           />
+          {amountEquivalent(form.closedAmount) ? (
+            <p className="mt-1 text-xs font-medium text-slate-400">{amountEquivalent(form.closedAmount)}</p>
+          ) : null}
         </div>
         <div>
           <label className="label">Expected close date</label>
