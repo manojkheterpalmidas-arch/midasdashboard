@@ -35,6 +35,14 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+// Register the PWA service worker in production builds only (it would interfere
+// with Vite's dev hot-reload). This is what makes the app installable.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+
 try {
   createRoot(document.getElementById("root")).render(
     <React.StrictMode>

@@ -44,10 +44,39 @@ function normalizeRoleValue(role) {
   return "Team Member";
 }
 
+// Persist auth in localStorage so it survives closing the app (sessionStorage
+// is wiped on close, which forced a fresh Google login every launch).
+const TOKEN_KEY = "midas-google-access-token";
+const TOKEN_EXP_KEY = "midas-google-token-expiry";
+const EMAIL_KEY = "midas-google-email";
+const SUB_KEY = "midas-google-sub";
+
+function loadStored(key) {
+  return localStorage.getItem(key) || sessionStorage.getItem(key) || "";
+}
+
 let tokenClient = null;
-let accessToken = sessionStorage.getItem("midas-google-access-token") || "";
-let signedInEmail = sessionStorage.getItem("midas-google-email") || "";
-let signedInGoogleSub = sessionStorage.getItem("midas-google-sub") || "";
+let pendingToken = null;
+let accessToken = loadStored(TOKEN_KEY);
+let tokenExpiry = Number(localStorage.getItem(TOKEN_EXP_KEY)) || 0;
+let signedInEmail = loadStored(EMAIL_KEY);
+let signedInGoogleSub = loadStored(SUB_KEY);
+
+// Store the token and when it expires (refresh a minute early for safety).
+function persistAccessToken(token, expiresInSeconds) {
+  accessToken = token || "";
+  if (token) {
+    const ttlMs = (Number(expiresInSeconds) || 3600) * 1000;
+    tokenExpiry = Date.now() + Math.max(ttlMs - 60000, 0);
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(TOKEN_EXP_KEY, String(tokenExpiry));
+    sessionStorage.setItem("midas-google-session", "true");
+  } else {
+    tokenExpiry = 0;
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXP_KEY);
+  }
+}
 let spreadsheetId = extractSpreadsheetId(import.meta.env.VITE_DEFAULT_SPREADSHEET_ID || localStorage.getItem("midas-google-spreadsheet-id") || "");
 let allDataCache = null;
 const sheetCache = {};
@@ -69,22 +98,22 @@ export function setSpreadsheetId(nextId) {
 }
 
 export function getUserEmail() {
-  return signedInEmail || sessionStorage.getItem("midas-google-email") || "";
+  return signedInEmail || loadStored(EMAIL_KEY);
 }
 
 export function getUserGoogleSub() {
-  return signedInGoogleSub || sessionStorage.getItem("midas-google-sub") || "";
+  return signedInGoogleSub || loadStored(SUB_KEY);
 }
 
 function rememberGoogleIdentity(identity = {}) {
   if (identity.email) {
     signedInEmail = identity.email;
-    sessionStorage.setItem("midas-google-email", signedInEmail);
+    localStorage.setItem(EMAIL_KEY, signedInEmail);
   }
   const sub = identity.sub || identity.user_id || identity.userId;
   if (sub) {
     signedInGoogleSub = String(sub);
-    sessionStorage.setItem("midas-google-sub", signedInGoogleSub);
+    localStorage.setItem(SUB_KEY, signedInGoogleSub);
   }
   if (signedInEmail || signedInGoogleSub) sessionStorage.removeItem("midas-google-email-error");
 }
@@ -146,8 +175,8 @@ async function refreshUserEmail() {
 }
 
 export async function ensureUserEmail() {
-  signedInEmail = signedInEmail || sessionStorage.getItem("midas-google-email") || "";
-  signedInGoogleSub = signedInGoogleSub || sessionStorage.getItem("midas-google-sub") || "";
+  signedInEmail = signedInEmail || loadStored(EMAIL_KEY);
+  signedInGoogleSub = signedInGoogleSub || loadStored(SUB_KEY);
   if (signedInEmail && signedInGoogleSub) return signedInEmail;
   return refreshUserEmail();
 }
@@ -170,9 +199,7 @@ export function consumeRedirectToken() {
   const error = hash.get("error");
   if (error) throw new Error(hash.get("error_description") || error);
   if (!token) return false;
-  accessToken = token;
-  sessionStorage.setItem("midas-google-access-token", accessToken);
-  sessionStorage.setItem("midas-google-session", "true");
+  persistAccessToken(token, hash.get("expires_in"));
   window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
   return true;
 }
@@ -216,42 +243,77 @@ function waitForGoogle() {
   });
 }
 
-export async function signIn() {
+// One shared token client. Its callback resolves whichever token request
+// (interactive sign-in or background refresh) is currently in flight.
+function buildTokenClient() {
+  return window.google.accounts.oauth2.initTokenClient({
+    client_id: clientId(),
+    scope: SHEETS_SCOPE,
+    prompt: "",
+    callback: async (response) => {
+      const resolver = pendingToken;
+      pendingToken = null;
+      if (response.error) {
+        resolver?.reject(new Error(response.error));
+        return;
+      }
+      persistAccessToken(response.access_token, response.expires_in);
+      rememberGoogleIdentity(decodeJwtPayload(response.id_token));
+      if (!signedInEmail || !signedInGoogleSub) {
+        try {
+          const profile = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          }).then((res) => res.json());
+          rememberGoogleIdentity(profile);
+        } catch {
+          /* identity lookup is best-effort */
+        }
+      }
+      resolver?.resolve({ ok: true, email: signedInEmail });
+    },
+    error_callback: (error) => {
+      const resolver = pendingToken;
+      pendingToken = null;
+      resolver?.reject(new Error(error?.message || error?.type || "Google sign-in was blocked or cancelled."));
+    }
+  });
+}
+
+async function requestToken(promptMode = "") {
   if (!clientId()) throw new Error("Missing VITE_GOOGLE_CLIENT_ID.");
   await waitForGoogle();
+  if (!tokenClient) tokenClient = buildTokenClient();
+  if (pendingToken) {
+    pendingToken.reject(new Error("Superseded by a newer Google token request."));
+    pendingToken = null;
+  }
   return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      reject(new Error(`Google sign-in did not finish. Allow popups for ${window.location.origin}, then try again.`));
-    }, 60000);
-    tokenClient =
-      window.google.accounts.oauth2.initTokenClient({
-        client_id: clientId(),
-        scope: SHEETS_SCOPE,
-        prompt: "",
-        error_callback: (error) => {
-          window.clearTimeout(timeout);
-          reject(new Error(error?.message || error?.type || "Google sign-in was blocked or cancelled."));
-        },
-        callback: async (response) => {
-          window.clearTimeout(timeout);
-          if (response.error) return reject(new Error(response.error));
-          accessToken = response.access_token;
-          sessionStorage.setItem("midas-google-access-token", accessToken);
-          sessionStorage.setItem("midas-google-session", "true");
-          rememberGoogleIdentity(decodeJwtPayload(response.id_token));
-          try {
-            const profile = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-              headers: { Authorization: `Bearer ${accessToken}` }
-            }).then((res) => res.json());
-            rememberGoogleIdentity(profile);
-          } catch {
-            signedInEmail = "";
-          }
-          resolve({ ok: true, email: signedInEmail });
-        }
-      });
-    tokenClient.requestAccessToken({ prompt: "consent" });
+    pendingToken = { resolve, reject };
+    try {
+      tokenClient.requestAccessToken({ prompt: promptMode });
+    } catch (error) {
+      pendingToken = null;
+      reject(error);
+    }
   });
+}
+
+// Interactive: returning users with a live Google session are silent; brand-new
+// users are shown the consent screen automatically. No forced re-consent.
+export async function signIn() {
+  return requestToken("");
+}
+
+// Background refresh — never shows UI. Rejects if Google needs interaction.
+async function silentRefresh() {
+  return requestToken("");
+}
+
+// Returns a valid token, silently refreshing first if the current one expired.
+async function ensureValidToken() {
+  if (accessToken && Date.now() < tokenExpiry) return accessToken;
+  await silentRefresh();
+  return accessToken;
 }
 
 export function isSignedIn() {
@@ -259,13 +321,12 @@ export function isSignedIn() {
 }
 
 export function signOut() {
-  accessToken = "";
+  persistAccessToken("");
   signedInEmail = "";
   signedInGoogleSub = "";
-  sessionStorage.removeItem("midas-google-access-token");
+  localStorage.removeItem(EMAIL_KEY);
+  localStorage.removeItem(SUB_KEY);
   sessionStorage.removeItem("midas-google-session");
-  sessionStorage.removeItem("midas-google-email");
-  sessionStorage.removeItem("midas-google-sub");
   sessionStorage.removeItem("midas-google-email-error");
 }
 
@@ -284,10 +345,16 @@ function requestLabel(path, method) {
 }
 
 async function sheetsFetch(path, options = {}) {
-  if (!accessToken) await signIn();
   if (!spreadsheetId) throw new Error("Set VITE_DEFAULT_SPREADSHEET_ID in the app environment first.");
+  if (!accessToken) await signIn();
+  else if (Date.now() >= tokenExpiry) {
+    // Token expired: refresh silently before spending the request. If the
+    // refresh needs interaction it will surface as a 401 and be handled below.
+    await silentRefresh().catch(() => {});
+  }
   const method = options.method || "GET";
   const label = requestLabel(path, method);
+  let reauthed = false;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     if (import.meta.env.DEV) console.info(`[Sheets API] ${new Date().toISOString()} ${label}`);
     const response = await fetch(`${API_ROOT}/${spreadsheetId}${path}`, {
@@ -300,6 +367,16 @@ async function sheetsFetch(path, options = {}) {
     });
     const payload = await response.json().catch(() => ({}));
     if (response.ok) return payload;
+    if (response.status === 401 && !reauthed) {
+      // Stale/revoked token — try one silent refresh and retry before failing.
+      reauthed = true;
+      try {
+        await silentRefresh();
+        continue;
+      } catch {
+        /* fall through and report the 401 so the app can prompt a login */
+      }
+    }
     if (response.status === 429 && attempt < 4) {
       const waitMs = 1000 * 2 ** attempt + Math.floor(Math.random() * 350);
       await sleep(waitMs);

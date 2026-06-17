@@ -1,0 +1,16 @@
+{
+  "name": "MIDAS IT Europe Sales Forecast",
+  "short_name": "MIDAS Forecast",
+  "description": "MIDAS IT Europe sales forecast, pipeline, and team performance dashboard.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#1d4f8f",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

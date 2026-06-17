@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="MIDAS Forecast">
+  <rect width="512" height="512" rx="96" fill="#1d4f8f"/>
+  <rect x="96" y="300" width="56" height="116" rx="12" fill="#16825d"/>
+  <rect x="184" y="244" width="56" height="172" rx="12" fill="#3b82c4"/>
+  <rect x="272" y="180" width="56" height="236" rx="12" fill="#16825d"/>
+  <rect x="360" y="120" width="56" height="296" rx="12" fill="#d18b16"/>
+  <text x="256" y="150" font-family="Segoe UI, Arial, sans-serif" font-size="120" font-weight="800" fill="#ffffff" text-anchor="middle">M</text>
+</svg>
