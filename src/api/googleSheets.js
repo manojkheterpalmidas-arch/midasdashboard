@@ -279,7 +279,21 @@ function buildTokenClient() {
   });
 }
 
-async function requestToken(promptMode = "") {
+// In the desktop (.exe) build a preload bridge handles Google sign-in in the
+// system browser (so passkeys / Windows Hello work). In a normal browser this
+// is undefined and we use Google Identity Services as usual.
+function desktopBridge() {
+  return typeof window !== "undefined" && window.midasDesktop?.getToken ? window.midasDesktop : null;
+}
+
+async function requestToken(interactive) {
+  const bridge = desktopBridge();
+  if (bridge) {
+    const result = await bridge.getToken(interactive);
+    persistAccessToken(result.access_token, result.expires_in);
+    if (result.email || result.sub) rememberGoogleIdentity({ email: result.email, sub: result.sub });
+    return { ok: true, email: signedInEmail };
+  }
   if (!clientId()) throw new Error("Missing VITE_GOOGLE_CLIENT_ID.");
   await waitForGoogle();
   if (!tokenClient) tokenClient = buildTokenClient();
@@ -290,7 +304,7 @@ async function requestToken(promptMode = "") {
   return new Promise((resolve, reject) => {
     pendingToken = { resolve, reject };
     try {
-      tokenClient.requestAccessToken({ prompt: promptMode });
+      tokenClient.requestAccessToken({ prompt: "" });
     } catch (error) {
       pendingToken = null;
       reject(error);
@@ -301,12 +315,12 @@ async function requestToken(promptMode = "") {
 // Interactive: returning users with a live Google session are silent; brand-new
 // users are shown the consent screen automatically. No forced re-consent.
 export async function signIn() {
-  return requestToken("");
+  return requestToken(true);
 }
 
 // Background refresh — never shows UI. Rejects if Google needs interaction.
 async function silentRefresh() {
-  return requestToken("");
+  return requestToken(false);
 }
 
 // Returns a valid token, silently refreshing first if the current one expired.
@@ -321,6 +335,13 @@ export function isSignedIn() {
 }
 
 export function signOut() {
+  if (typeof window !== "undefined" && window.midasDesktop?.signOut) {
+    try {
+      window.midasDesktop.signOut();
+    } catch {
+      /* best-effort: still clear local state below */
+    }
+  }
   persistAccessToken("");
   signedInEmail = "";
   signedInGoogleSub = "";
