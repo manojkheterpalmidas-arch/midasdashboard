@@ -136,7 +136,7 @@ async function previewTeams(file) {
     if (!row.teamLead) errors.push("teamLead is required.");
     if (!row.region) errors.push("region is required.");
     if (!/^[A-Za-z]{3}$/.test(String(row.currency || ""))) errors.push("currency must be a short currency code.");
-    if (!Number.isFinite(Number(row.krwRate))) errors.push("krwRate must be a number.");
+    // krwRate is derived centrally from the Exchange Rates settings, so it is optional in imports.
     const existingTeam = existing.get(teamName.toLowerCase());
     const duplicate = Boolean(existingTeam || seen.has(teamName.toLowerCase()));
     seen.add(teamName.toLowerCase());

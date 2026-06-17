@@ -37,7 +37,9 @@ const DEAL_TYPES = ["Renewal", "Reactivation", "Upsell", "New Logo", "Cross-sell
 const TEMPERATURES = ["High", "Medium", "Low"];
 const STATUSES = ["Open", "Closed", "Lost", "Long-Term"];
 const GOAL_TYPES = ["Responsibility Goal", "Challenge Goal"];
-const CURRENCIES = ["GBP", "EUR", "PLN", "USD"];
+const CURRENCIES = ["KRW", "GBP", "EUR", "USD"];
+const RATE_CURRENCIES = ["GBP", "EUR", "USD"];
+const DEFAULT_KRW_RATES = { KRW: 1, GBP: 1850, EUR: 1580, USD: 1350 };
 const PRIVILEGED_ROLES = ["Team Lead", "Manager"];
 const MANAGER_COMMENT_PASSWORD = "9999";
 const MANAGER_COMMENT_UNLOCK_KEY = "midas-manager-comment-unlocked";
@@ -518,7 +520,7 @@ function formatCompactMoney(value, currency = "KRW") {
 }
 
 function currencySymbol(currency = "KRW") {
-  return { KRW: "₩", GBP: "£", EUR: "€", PLN: "zł", USD: "$" }[currency] || `${currency} `;
+  return { KRW: "₩", GBP: "£", EUR: "€", USD: "$" }[currency] || `${currency} `;
 }
 
 function formatChartMoney(value, currency = "KRW") {
@@ -706,6 +708,40 @@ function toKrw(amount, team) {
   return num(amount) * num(team?.krwRate || 0);
 }
 
+// Central currency rates. The single source of truth is the Settings sheet
+// (keys rateGBP/rateEUR/rateUSD). KRW is always 1. When a currency has no
+// stored central rate yet, we fall back to the rate already on a team using
+// that currency (seamless migration) and finally to a sensible default.
+function rateForCurrency(currency, settings = {}, teams = []) {
+  const code = String(currency || "KRW").toUpperCase();
+  if (code === "KRW") return 1;
+  const stored = num(settings?.[`rate${code}`]);
+  if (stored > 0) return stored;
+  const fromTeam = teams.find(
+    (team) => String(team.currency || "").toUpperCase() === code && num(team.krwRate) > 0
+  );
+  if (fromTeam) return num(fromTeam.krwRate);
+  return DEFAULT_KRW_RATES[code] || 0;
+}
+
+function ratesFromSettings(settings = {}, teams = []) {
+  return {
+    KRW: 1,
+    GBP: rateForCurrency("GBP", settings, teams),
+    EUR: rateForCurrency("EUR", settings, teams),
+    USD: rateForCurrency("USD", settings, teams)
+  };
+}
+
+// Every team's effective krwRate is derived from the central rates so a single
+// rate change updates all teams, deals, goals, and charts at once.
+function applyRatesToTeams(teams = [], settings = {}) {
+  return (teams || []).map((team) => ({
+    ...team,
+    krwRate: rateForCurrency(team.currency, settings, teams)
+  }));
+}
+
 function eurReferenceRate(teams) {
   const ee1 = teams.find((team) => String(team.teamName || "").trim().toLowerCase() === "ee1");
   const eurTeam = ee1 || teams.find((team) => String(team.currency || "").toUpperCase() === "EUR");
@@ -885,7 +921,9 @@ function Header({
   refreshing = false,
   isManager = true,
   access,
-  availableTabs = TABS
+  availableTabs = TABS,
+  rates = DEFAULT_KRW_RATES,
+  onSaveRates
 }) {
   const teamsCsvRef = useRef(null);
   const dealsCsvRef = useRef(null);
@@ -1011,8 +1049,77 @@ function Header({
         </div>
         ) : null}
       </div>
+      <CurrencyRateBar rates={rates} isManager={isManager} onSaveRates={onSaveRates} />
       <TopNav activeTab={activeTab} setActiveTab={setActiveTab} tabs={availableTabs} />
     </header>
+  );
+}
+
+function CurrencyRateBar({ rates = DEFAULT_KRW_RATES, isManager = false, onSaveRates }) {
+  const [draft, setDraft] = useState(rates);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setDraft(rates);
+  }, [rates.GBP, rates.EUR, rates.USD]);
+
+  const dirty = RATE_CURRENCIES.some((code) => num(draft[code]) !== num(rates[code]));
+
+  async function save() {
+    if (!onSaveRates) return;
+    setSaving(true);
+    setSaved(false);
+    try {
+      await onSaveRates({ GBP: num(draft.GBP), EUR: num(draft.EUR), USD: num(draft.USD) });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (error) {
+      alert(`Could not save currency rates: ${error.message || "please try again."}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-midas-line bg-white px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <div className="flex flex-col">
+          <span className="text-xs font-extrabold uppercase tracking-wide text-slate-500">Exchange Rates</span>
+          <span className="text-xs font-semibold text-slate-400">KRW per 1 unit</span>
+        </div>
+        <span className="rounded bg-slate-100 px-2.5 py-1 text-sm font-semibold text-slate-600">₩ KRW = 1</span>
+        {RATE_CURRENCIES.map((code) => (
+          <label key={code} className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <span className="w-14">
+              {currencySymbol(code)} {code}
+            </span>
+            {isManager ? (
+              <input
+                type="number"
+                min="0"
+                step="any"
+                className="field w-28 py-1.5"
+                value={draft[code] ?? ""}
+                onChange={(event) => setDraft((current) => ({ ...current, [code]: event.target.value }))}
+              />
+            ) : (
+              <span className="rounded bg-slate-100 px-2.5 py-1 text-slate-600">{num(rates[code]).toLocaleString()}</span>
+            )}
+          </label>
+        ))}
+        {isManager ? (
+          <button className="btn-primary py-1.5" onClick={save} disabled={saving || !dirty}>
+            {saving ? "Saving..." : saved ? "Saved ✓" : "Update rates"}
+          </button>
+        ) : null}
+      </div>
+      <p className="mt-2 text-xs font-medium text-slate-400">
+        {isManager
+          ? "Updating a rate here instantly recalculates every team, deal, goal, and chart that uses that currency."
+          : "Exchange rates are managed centrally. Contact a manager to change them."}
+      </p>
+    </div>
   );
 }
 
@@ -1211,7 +1318,6 @@ function TeamForm({ initialTeam, onSave, onCancel }) {
       teamLead: "",
       region: "",
       currency: "GBP",
-      krwRate: 1850,
       reps: []
     }
   );
@@ -1225,7 +1331,6 @@ function TeamForm({ initialTeam, onSave, onCancel }) {
     onSave({
       ...form,
       id: form.id || createId("team"),
-      krwRate: num(form.krwRate),
       reps: String(form.repsText ?? form.reps.join(", "))
         .split(",")
         .map((rep) => rep.trim())
@@ -1255,18 +1360,9 @@ function TeamForm({ initialTeam, onSave, onCancel }) {
               <option key={currency}>{currency}</option>
             ))}
           </select>
-        </div>
-        <div>
-          <label className="label">KRW rate</label>
-          <input
-            required
-            type="number"
-            min="0"
-            step="any"
-            className="field"
-            value={form.krwRate}
-            onChange={(e) => update("krwRate", e.target.value)}
-          />
+          <p className="mt-1 text-xs font-medium text-slate-400">
+            KRW conversion is set centrally in the Exchange Rates bar at the top of the app.
+          </p>
         </div>
         <div>
           <label className="label">Reps, comma separated</label>
@@ -2391,8 +2487,11 @@ function TeamsPage({ data, refreshData }) {
   const [editing, setEditing] = useState(null);
 
   async function saveTeam(team) {
-    if (data.teams.some((item) => item.id === team.id)) await api.updateTeam(team.id, team);
-    else await api.createTeam(team);
+    // Stamp the currency's central KRW rate onto the persisted row so exports
+    // and the raw sheet stay consistent; it is re-derived from Settings on load.
+    const withRate = { ...team, krwRate: rateForCurrency(team.currency, data.settings, data.teams) };
+    if (data.teams.some((item) => item.id === withRate.id)) await api.updateTeam(withRate.id, withRate);
+    else await api.createTeam(withRate);
     await refreshData();
     setEditing(null);
   }
@@ -2408,7 +2507,7 @@ function TeamsPage({ data, refreshData }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="section-title">Teams</h2>
-          <p className="text-sm text-slate-500">Manage team setup, currencies, KRW rates, and reps.</p>
+          <p className="text-sm text-slate-500">Manage team setup, currencies, and reps. KRW rates are set centrally in the Exchange Rates bar.</p>
         </div>
         <button className="btn-primary" onClick={() => setEditing({})}>
           Add Team
@@ -2422,7 +2521,7 @@ function TeamsPage({ data, refreshData }) {
             { header: "Team lead", render: (row) => row.teamLead },
             { header: "Region", render: (row) => row.region },
             { header: "Currency", render: (row) => row.currency },
-            { header: "KRW rate", render: (row) => num(row.krwRate).toLocaleString() },
+            { header: "KRW rate (central)", render: (row) => num(row.krwRate).toLocaleString() },
             { header: "Reps", render: (row) => row.reps.join(", ") },
             {
               header: "Edit",
@@ -4163,7 +4262,7 @@ export default function App() {
       setEmailLookupError(api.getUserEmailError?.() || "");
       setData((current) => ({
         ...current,
-        teams: nextData.teams,
+        teams: applyRatesToTeams(nextData.teams, nextData.settings),
         deals: nextData.deals,
         goals: nextData.goals,
         roles: nextData.roles || [],
@@ -4220,6 +4319,23 @@ export default function App() {
 
   function setPreparedBy(preparedBy) {
     setData((current) => ({ ...current, preparedBy }));
+  }
+
+  async function saveRates(nextRates) {
+    const settings = {
+      ...data.settings,
+      rateGBP: String(num(nextRates.GBP)),
+      rateEUR: String(num(nextRates.EUR)),
+      rateUSD: String(num(nextRates.USD))
+    };
+    // Persist centrally first, then re-derive every team's rate from settings.
+    await api.updateSettings(settings);
+    setData((current) => ({
+      ...current,
+      settings,
+      teams: applyRatesToTeams(current.teams, settings),
+      lastUpdated: new Date().toISOString()
+    }));
   }
 
   function exportCsv(type) {
@@ -4414,6 +4530,8 @@ export default function App() {
           isManager={isManager}
           access={access}
           availableTabs={availableTabs}
+          rates={ratesFromSettings(data.settings, data.teams)}
+          onSaveRates={saveRates}
         />
         {appError ? <div className="mx-4 mt-4 rounded-md bg-red-50 px-4 py-3 text-sm font-bold text-red-700 lg:mx-6">{appError}</div> : null}
         <main className="p-4 lg:p-6">{content[activeTab]}</main>
