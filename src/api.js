@@ -54,6 +54,7 @@ function cleanDeal(deal) {
     minAmount: toNumber(deal.minAmount),
     maxAmount,
     probability: toNumber(deal.probability),
+    hubspotDealUrl: String(deal.hubspotDealUrl || "").trim(),
     closedAmount: status === "Closed" ? toNumber(deal.closedAmount || maxAmount) : 0,
     comments: deal.comments ?? repComment,
     repComment,
@@ -223,6 +224,7 @@ async function previewDeals(file) {
         status: row.status,
         closedAmount: row.closedAmount,
         expectedCloseDate: row.expectedCloseDate,
+        hubspotDealUrl: row.hubspotDealUrl,
         comments: row.comments,
         repComment: row.repComment,
         managerComment: row.managerComment,
@@ -346,7 +348,7 @@ export const api = {
     if (type === "deals") {
       const teams = new Map(data.teams.map((team) => [team.id, team]));
       const rows = data.deals.map((deal) => ({ ...deal, teamName: teams.get(deal.teamId)?.teamName || "" }));
-      downloadText("midas-deals.csv", toCsv(rows, ["id", "year", "month", "teamName", "repName", "companyName", "product", "category", "dealType", "minAmount", "maxAmount", "probability", "temperature", "status", "closedAmount", "expectedCloseDate", "comments", "repComment", "managerComment", "nextAction"]), "text/csv;charset=utf-8");
+      downloadText("midas-deals.csv", toCsv(rows, ["id", "year", "month", "teamName", "repName", "companyName", "product", "category", "dealType", "minAmount", "maxAmount", "probability", "temperature", "status", "closedAmount", "expectedCloseDate", "hubspotDealUrl", "comments", "repComment", "managerComment", "nextAction"]), "text/csv;charset=utf-8");
     }
     if (type === "goals") {
       const teams = new Map(data.teams.map((team) => [team.id, team]));

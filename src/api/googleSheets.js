@@ -24,7 +24,8 @@ export const SHEET_COLUMNS = {
     "createdAt",
     "updatedAt",
     "repComment",
-    "managerComment"
+    "managerComment",
+    "hubspotDealUrl"
   ],
   MonthlyGoals: ["id", "teamId", "repName", "year", "month", "category", "goalType", "targetAmount", "createdAt", "updatedAt"],
   UserRoles: ["id", "email", "role", "teamId", "repName", "createdAt", "updatedAt", "googleSub"],
@@ -589,6 +590,7 @@ export function normalizeDeal(row) {
     maxAmount: Number(row.maxAmount || 0),
     probability: Number(row.probability || 0),
     closedAmount: row.closedAmount === "" ? "" : Number(row.closedAmount || 0),
+    hubspotDealUrl: String(row.hubspotDealUrl || "").trim(),
     repComment: row.repComment || row.comments || "",
     managerComment: row.managerComment || ""
   };

@@ -81,6 +81,7 @@ const CSV_FIELDS = [
   "status",
   "closedAmount",
   "expectedCloseDate",
+  "hubspotDealUrl",
   "comments",
   "repComment",
   "managerComment",
@@ -413,6 +414,7 @@ function csvToData(text) {
         status: record.status || "Open",
         closedAmount: record.closedAmount,
         expectedCloseDate: record.expectedCloseDate,
+        hubspotDealUrl: record.hubspotDealUrl,
         comments: record.comments,
         repComment: record.repComment,
         managerComment: record.managerComment,
@@ -674,6 +676,15 @@ function closedAchievementHelper(metrics, currency = "KRW") {
   return { text: `Above goal: ${formatMoney(Math.abs(remaining), currency)}`, tone: "green" };
 }
 
+function safeExternalUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
 function normalizeDeal(deal) {
   const next = {
     ...deal,
@@ -682,6 +693,7 @@ function normalizeDeal(deal) {
     minAmount: num(deal.minAmount),
     maxAmount: num(deal.maxAmount),
     probability: num(deal.probability),
+    hubspotDealUrl: String(deal.hubspotDealUrl || "").trim(),
     repComment: deal.repComment ?? deal.comments ?? "",
     managerComment: deal.managerComment ?? ""
   };
@@ -1410,6 +1422,7 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
       status: "Open",
       closedAmount: "",
       expectedCloseDate: "",
+      hubspotDealUrl: "",
       comments: "",
       repComment: "",
       managerComment: "",
@@ -1608,6 +1621,17 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
         <div>
           <label className="label">Expected close date</label>
           <input type="date" className="field" value={form.expectedCloseDate} onChange={(e) => update("expectedCloseDate", e.target.value)} />
+        </div>
+        <div className="md:col-span-2">
+          <label className="label">HubSpot deal link</label>
+          <input
+            type="url"
+            className="field"
+            value={form.hubspotDealUrl || ""}
+            onChange={(e) => update("hubspotDealUrl", e.target.value)}
+            placeholder="https://app.hubspot.com/contacts/.../deal/..."
+          />
+          <p className="mt-1 text-xs font-medium text-slate-400">The company name becomes clickable in Team View.</p>
         </div>
         <div className="md:col-span-3">
           <label className="label">Rep comment</label>
@@ -2807,7 +2831,12 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
             { header: "Month", render: (row) => `${monthName(row.month)} ${row.year}` },
             { header: "Team", render: (row) => getTeam(data.teams, row.teamId)?.teamName || "" },
             { header: "Rep", render: (row) => row.repName },
-            { header: "Company", render: (row) => row.companyName },
+            {
+              header: "Company",
+              render: (row) => (
+                <DealHubSpotLink deal={row} />
+              )
+            },
             { header: "Product", render: (row) => row.product },
             { header: "Category", render: (row) => row.category },
             { header: "Min Amount", render: (row) => formatMoney(row.minAmount, getTeam(data.teams, row.teamId)?.currency) },
@@ -3253,6 +3282,23 @@ function InlineDealComment({ deal, field, onSave, placeholder, disabled = false 
   );
 }
 
+function DealHubSpotLink({ deal }) {
+  const url = safeExternalUrl(deal.hubspotDealUrl);
+  if (!url) return deal.companyName;
+  return (
+    <a
+      className="font-semibold text-midas-blue underline decoration-blue-300 underline-offset-2 hover:text-blue-700"
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`Open ${deal.companyName} in HubSpot`}
+      title="Open deal in HubSpot"
+    >
+      {deal.companyName}
+    </a>
+  );
+}
+
 function ForecastTable({ title, deals, team, currency, displayFactor = 1, includeClosed = false, onSaveComment, canEditManagerNotes = false }) {
   const openDeals = deals.filter((deal) => deal.status === "Open");
   const closedDeals = deals.filter((deal) => deal.status === "Closed");
@@ -3266,7 +3312,7 @@ function ForecastTable({ title, deals, team, currency, displayFactor = 1, includ
   const totalMaxDisplay = displayAmount(totalMax);
   const totalClosedDisplay = displayAmount(totalClosed);
   const columns = [
-    { header: "Company", render: (row) => row.companyName },
+    { header: "Company", render: (row) => <DealHubSpotLink deal={row} /> },
     { header: "Product", render: (row) => row.product },
     { header: "Rep", render: (row) => row.repName },
     ...(includeClosed
