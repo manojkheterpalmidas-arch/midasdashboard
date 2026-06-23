@@ -62,6 +62,16 @@ let accessToken = loadStored(TOKEN_KEY);
 let tokenExpiry = Number(localStorage.getItem(TOKEN_EXP_KEY)) || 0;
 let signedInEmail = loadStored(EMAIL_KEY);
 let signedInGoogleSub = loadStored(SUB_KEY);
+let lastConnectionCheckAt = 0;
+
+function emitConnectionState(status, message = "") {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("midas-google-sheets-connection", {
+      detail: { status, message, expiresAt: tokenExpiry, email: signedInEmail }
+    })
+  );
+}
 
 // Store the token and when it expires (refresh a minute early for safety).
 function persistAccessToken(token, expiresInSeconds) {
@@ -72,10 +82,13 @@ function persistAccessToken(token, expiresInSeconds) {
     localStorage.setItem(TOKEN_KEY, token);
     localStorage.setItem(TOKEN_EXP_KEY, String(tokenExpiry));
     sessionStorage.setItem("midas-google-session", "true");
+    emitConnectionState("connected", "Google access renewed.");
   } else {
     tokenExpiry = 0;
+    lastConnectionCheckAt = 0;
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(TOKEN_EXP_KEY);
+    emitConnectionState("reconnect", "Google Sheets access needs to be renewed.");
   }
 }
 let spreadsheetId = extractSpreadsheetId(import.meta.env.VITE_DEFAULT_SPREADSHEET_ID || localStorage.getItem("midas-google-spreadsheet-id") || "");
@@ -305,7 +318,7 @@ async function requestToken(interactive) {
   return new Promise((resolve, reject) => {
     pendingToken = { resolve, reject };
     try {
-      tokenClient.requestAccessToken({ prompt: "" });
+      tokenClient.requestAccessToken({ prompt: interactive ? "select_account" : "" });
     } catch (error) {
       pendingToken = null;
       reject(error);
@@ -333,6 +346,31 @@ async function ensureValidToken() {
 
 export function isSignedIn() {
   return Boolean(accessToken);
+}
+
+export function getGoogleSheetsConnection() {
+  const connected = Boolean(accessToken && Date.now() < tokenExpiry);
+  return {
+    status: connected ? "connected" : "reconnect",
+    connected,
+    expiresAt: tokenExpiry,
+    email: signedInEmail
+  };
+}
+
+export async function checkGoogleSheetsConnection({ force = false } = {}) {
+  const fiveMinutes = 5 * 60 * 1000;
+  if (
+    !force &&
+    accessToken &&
+    Date.now() < tokenExpiry &&
+    Date.now() - lastConnectionCheckAt < fiveMinutes
+  ) {
+    return getGoogleSheetsConnection();
+  }
+  await ensureValidToken();
+  await sheetsFetch("?fields=spreadsheetId");
+  return getGoogleSheetsConnection();
 }
 
 export function signOut() {
@@ -379,16 +417,28 @@ async function sheetsFetch(path, options = {}) {
   let reauthed = false;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     if (import.meta.env.DEV) console.info(`[Sheets API] ${new Date().toISOString()} ${label}`);
-    const response = await fetch(`${API_ROOT}/${spreadsheetId}${path}`, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-        ...(options.headers || {})
-      }
-    });
+    let response;
+    try {
+      response = await fetch(`${API_ROOT}/${spreadsheetId}${path}`, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          ...(options.headers || {})
+        }
+      });
+    } catch {
+      const connectionError = new Error("Cannot reach Google Sheets. Check the internet connection, then use Check & refresh.");
+      connectionError.status = 0;
+      emitConnectionState("reconnect", connectionError.message);
+      throw connectionError;
+    }
     const payload = await response.json().catch(() => ({}));
-    if (response.ok) return payload;
+    if (response.ok) {
+      lastConnectionCheckAt = Date.now();
+      emitConnectionState("connected", "Google Sheets connection confirmed.");
+      return payload;
+    }
     if (response.status === 401 && !reauthed) {
       // Stale/revoked token — try one silent refresh and retry before failing.
       reauthed = true;
@@ -404,8 +454,14 @@ async function sheetsFetch(path, options = {}) {
       await sleep(waitMs);
       continue;
     }
+    if (response.status === 401) persistAccessToken("");
+    if (response.status === 403) {
+      emitConnectionState("reconnect", payload.error?.message || "This Google account cannot access the forecast spreadsheet.");
+    }
     const message =
-      response.status === 429
+      response.status === 401
+        ? "Google Sheets connection expired. Use Reconnect Google Sheets and then retry your save."
+        : response.status === 429
         ? "Google Sheets is temporarily rate-limiting requests. Please wait a few seconds."
         : payload.error?.message || `Google Sheets request failed (${response.status}).`;
     const error = new Error(message);

@@ -944,6 +944,11 @@ function Header({
   onBackup,
   onRefresh,
   refreshing = false,
+  connectionStatus = "checking",
+  connectionMessage = "Checking Google Sheets...",
+  onReconnect,
+  onFullSignIn,
+  reconnecting = false,
   isManager = true,
   access,
   availableTabs = TABS,
@@ -954,6 +959,12 @@ function Header({
   const dealsCsvRef = useRef(null);
   const goalsCsvRef = useRef(null);
   const jsonRef = useRef(null);
+  const connectionBadge =
+    connectionStatus === "connected"
+      ? { label: "Sheets connected", className: "bg-green-50 text-green-700" }
+      : connectionStatus === "checking"
+        ? { label: "Checking Sheets", className: "bg-blue-50 text-blue-700" }
+        : { label: "Reconnect required", className: "bg-red-50 text-red-700" };
 
   return (
     <header className="border-b border-midas-line bg-slate-50 px-4 py-4 lg:px-6">
@@ -982,7 +993,7 @@ function Header({
         <div className="panel p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-sm font-extrabold uppercase tracking-wide text-slate-500">Forecast Scope</h2>
-            <span className="rounded-full bg-green-50 px-2.5 py-1 text-xs font-bold text-green-700">Live Sheets</span>
+            <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${connectionBadge.className}`}>{connectionBadge.label}</span>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
             <div>
@@ -1036,9 +1047,22 @@ function Header({
               <input className="field" value={preparedBy} onChange={(e) => setPreparedBy(e.target.value)} />
             </div>
           </div>
-          <button className="btn-secondary mt-3 w-full" onClick={onRefresh} disabled={refreshing}>
-            {refreshing ? "Refreshing..." : "Refresh from Google Sheets"}
-          </button>
+          <div className={`mt-3 rounded-md px-3 py-2 text-xs font-semibold ${connectionStatus === "connected" ? "bg-green-50 text-green-700" : connectionStatus === "checking" ? "bg-blue-50 text-blue-700" : "bg-red-50 text-red-700"}`}>
+            {connectionMessage}
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <button className={connectionStatus === "connected" ? "btn-secondary" : "btn-primary"} onClick={onReconnect} disabled={reconnecting}>
+              {reconnecting ? "Connecting..." : connectionStatus === "connected" ? "Renew connection" : "Reconnect Google Sheets"}
+            </button>
+            <button className="btn-secondary" onClick={onRefresh} disabled={refreshing || reconnecting}>
+              {refreshing ? "Checking..." : "Check & refresh"}
+            </button>
+          </div>
+          {connectionStatus === "reconnect" ? (
+            <button className="mt-2 w-full text-xs font-bold text-midas-blue underline underline-offset-2" onClick={onFullSignIn}>
+              Use full-page Google sign-in
+            </button>
+          ) : null}
         </div>
 
         {isManager ? (
@@ -1258,6 +1282,14 @@ function PasswordGate({ onLogin }) {
         {hint ? <div className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">{hint}</div> : null}
         <button className="btn-primary mt-5 w-full" disabled={loading}>
           {loading ? "Waiting for Google..." : "Sign in with Google"}
+        </button>
+        <button
+          type="button"
+          className="btn-secondary mt-2 w-full"
+          disabled={loading}
+          onClick={() => api.redirectLogin()}
+        >
+          Use full-page Google sign-in
         </button>
         {loading ? (
           <button
@@ -2698,7 +2730,7 @@ function TeamsPage({ data, refreshData }) {
   );
 }
 
-function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
+function DealsPage({ data, refreshData, selectedYear, selectedMonth, access, connectionStatus = "connected" }) {
   const [editing, setEditing] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [savingDeal, setSavingDeal] = useState(false);
@@ -2721,6 +2753,10 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
   }
 
   async function saveDeal(deal) {
+    if (connectionStatus !== "connected") {
+      setDealSaveError("Google Sheets is not connected. Use Reconnect Google Sheets at the top, then retry this save.");
+      return;
+    }
     if (!canUseRecord(access, deal)) {
       alert("You can only save deals for your assigned team/rep.");
       return;
@@ -4469,12 +4505,34 @@ export default function App() {
   const [importing, setImporting] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [refreshingSheets, setRefreshingSheets] = useState(false);
+  const [sheetsConnection, setSheetsConnection] = useState(() => api.getGoogleSheetsConnection?.().status || "reconnect");
+  const [connectionMessage, setConnectionMessage] = useState(() => {
+    const connection = api.getGoogleSheetsConnection?.();
+    return connection?.connected ? "Google Sheets access is active." : "Reconnect before saving changes.";
+  });
+  const [reconnectingSheets, setReconnectingSheets] = useState(false);
   const [userEmail, setUserEmail] = useState(() => api.getUserEmail());
   const [userGoogleSub, setUserGoogleSub] = useState(() => api.getUserGoogleSub?.() || "");
   const [emailLookupError, setEmailLookupError] = useState(() => api.getUserEmailError?.() || "");
   const [managerCommentUnlocked, setManagerCommentUnlocked] = useState(
     () => sessionStorage.getItem(MANAGER_COMMENT_UNLOCK_KEY) === "true"
   );
+
+  useEffect(() => {
+    function handleConnectionChange(event) {
+      const detail = event.detail || {};
+      setSheetsConnection(detail.status || "reconnect");
+      setConnectionMessage(
+        detail.status === "connected"
+          ? detail.email
+            ? `Connected to Google Sheets as ${detail.email}.`
+            : detail.message || "Google Sheets connection confirmed."
+          : detail.message || "Reconnect before saving changes."
+      );
+    }
+    window.addEventListener("midas-google-sheets-connection", handleConnectionChange);
+    return () => window.removeEventListener("midas-google-sheets-connection", handleConnectionChange);
+  }, []);
 
   useEffect(() => {
     async function boot() {
@@ -4497,6 +4555,36 @@ export default function App() {
     }
     boot();
   }, []);
+
+  useEffect(() => {
+    if (!authenticated || !dataLoaded) return undefined;
+    let stopped = false;
+    async function keepConnectionAlive() {
+      try {
+        const connection = await api.checkGoogleSheetsConnection({ force: false });
+        if (!stopped) {
+          setSheetsConnection(connection.status);
+          setConnectionMessage(connection.email ? `Connected to Google Sheets as ${connection.email}.` : "Google Sheets connection confirmed.");
+        }
+      } catch (error) {
+        if (!stopped) {
+          setSheetsConnection("reconnect");
+          setConnectionMessage(error.message || "Google Sheets connection expired. Reconnect before saving.");
+        }
+      }
+    }
+    function checkWhenVisible() {
+      if (document.visibilityState === "visible") keepConnectionAlive();
+    }
+    keepConnectionAlive();
+    const timer = window.setInterval(keepConnectionAlive, 10 * 60 * 1000);
+    document.addEventListener("visibilitychange", checkWhenVisible);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", checkWhenVisible);
+    };
+  }, [authenticated, dataLoaded]);
 
   async function refreshData(force = false) {
     try {
@@ -4534,7 +4622,9 @@ export default function App() {
     } catch (error) {
       if (error.status === 401) {
         sessionStorage.removeItem("midas-authenticated");
-        setAuthenticated(false);
+        setSheetsConnection("reconnect");
+        setConnectionMessage(error.message || "Google Sheets connection expired. Reconnect before saving.");
+        if (!dataLoaded) setAuthenticated(false);
       } else {
         setAppError(error.message || "Could not load backend data.");
         setDataLoaded(true);
@@ -4544,10 +4634,36 @@ export default function App() {
 
   async function manualRefreshData() {
     setRefreshingSheets(true);
+    setSheetsConnection("checking");
+    setConnectionMessage("Checking live access to Google Sheets...");
     try {
       await refreshData(true);
+      const connection = api.getGoogleSheetsConnection?.();
+      if (connection?.connected) {
+        setSheetsConnection("connected");
+        setConnectionMessage(connection.email ? `Connected to Google Sheets as ${connection.email}.` : "Google Sheets connection confirmed.");
+      }
     } finally {
       setRefreshingSheets(false);
+    }
+  }
+
+  async function reconnectGoogleSheets() {
+    setReconnectingSheets(true);
+    setSheetsConnection("checking");
+    setConnectionMessage("Waiting for Google account authorization...");
+    try {
+      await api.login();
+      const connection = await api.checkGoogleSheetsConnection({ force: true });
+      setAuthenticated(true);
+      await refreshData(true);
+      setSheetsConnection("connected");
+      setConnectionMessage(connection.email ? `Connected to Google Sheets as ${connection.email}.` : "Google Sheets connection renewed and confirmed.");
+    } catch (error) {
+      setSheetsConnection("reconnect");
+      setConnectionMessage(error.message || "Google sign-in failed. Try the full-page sign-in option.");
+    } finally {
+      setReconnectingSheets(false);
     }
   }
 
@@ -4708,7 +4824,7 @@ export default function App() {
       />
     ),
     Teams: <TeamsPage data={data} refreshData={refreshData} />,
-    Deals: <DealsPage data={scopedData} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} access={access} />,
+    Deals: <DealsPage data={scopedData} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} access={access} connectionStatus={sheetsConnection} />,
     "Monthly Goals": <GoalsPage data={data} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} />,
     "Team View": (
       <TeamView
@@ -4785,6 +4901,11 @@ export default function App() {
           onBackup={createServerBackup}
           onRefresh={manualRefreshData}
           refreshing={refreshingSheets}
+          connectionStatus={sheetsConnection}
+          connectionMessage={connectionMessage}
+          onReconnect={reconnectGoogleSheets}
+          onFullSignIn={reconnectGoogleIdentity}
+          reconnecting={reconnectingSheets}
           isManager={isManager}
           access={access}
           availableTabs={availableTabs}

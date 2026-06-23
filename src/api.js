@@ -1,10 +1,12 @@
 import {
   createDatabaseSpreadsheet,
   consumeRedirectToken,
+  checkGoogleSheetsConnection,
   deleteRow,
   ensureUserEmail,
   getCachedData,
   getSpreadsheetId,
+  getGoogleSheetsConnection,
   getUserEmailError,
   getUserEmail,
   getUserGoogleSub,
@@ -306,6 +308,8 @@ export const api = {
   getUserGoogleSub,
   ensureUserEmail,
   getUserEmailError,
+  getGoogleSheetsConnection,
+  checkGoogleSheetsConnection,
   getCachedData,
   readAllData,
 
