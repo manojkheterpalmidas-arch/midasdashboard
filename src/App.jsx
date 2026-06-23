@@ -964,7 +964,9 @@ function Header({
       ? { label: "Sheets connected", className: "bg-green-50 text-green-700" }
       : connectionStatus === "checking"
         ? { label: "Checking Sheets", className: "bg-blue-50 text-blue-700" }
-        : { label: "Reconnect required", className: "bg-red-50 text-red-700" };
+        : connectionStatus === "denied"
+          ? { label: "Access denied", className: "bg-red-50 text-red-700" }
+          : { label: "Reconnect required", className: "bg-red-50 text-red-700" };
 
   return (
     <header className="border-b border-midas-line bg-slate-50 px-4 py-4 lg:px-6">
@@ -1248,7 +1250,7 @@ function Modal({ title, children, onClose }) {
   );
 }
 
-function PasswordGate({ onLogin }) {
+function PasswordGate({ onLogin, externalError = "" }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [hint, setHint] = useState("");
@@ -1278,6 +1280,7 @@ function PasswordGate({ onLogin }) {
         <div className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">
           Please request access from manoj@midasit.com by providing your Gmail email address.
         </div>
+        {externalError ? <div className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{externalError}</div> : null}
         {error ? <div className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</div> : null}
         {hint ? <div className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">{hint}</div> : null}
         <button className="btn-primary mt-5 w-full" disabled={loading}>
@@ -4529,6 +4532,12 @@ export default function App() {
             : detail.message || "Google Sheets connection confirmed."
           : detail.message || "Reconnect before saving changes."
       );
+      if (detail.status === "denied") {
+        setAuthenticated(false);
+        setDataLoaded(false);
+        setData(emptyData);
+        setAppError(detail.message || "This Google account cannot access the forecast spreadsheet.");
+      }
     }
     window.addEventListener("midas-google-sheets-connection", handleConnectionChange);
     return () => window.removeEventListener("midas-google-sheets-connection", handleConnectionChange);
@@ -4568,7 +4577,7 @@ export default function App() {
         }
       } catch (error) {
         if (!stopped) {
-          setSheetsConnection("reconnect");
+          setSheetsConnection(error.status === 403 ? "denied" : "reconnect");
           setConnectionMessage(error.message || "Google Sheets connection expired. Reconnect before saving.");
         }
       }
@@ -4619,16 +4628,26 @@ export default function App() {
       setAuthenticated(true);
       setDataLoaded(true);
       setAppError("");
+      return true;
     } catch (error) {
-      if (error.status === 401) {
+      if (error.status === 401 || error.status === 403) {
         sessionStorage.removeItem("midas-authenticated");
-        setSheetsConnection("reconnect");
-        setConnectionMessage(error.message || "Google Sheets connection expired. Reconnect before saving.");
-        if (!dataLoaded) setAuthenticated(false);
+        const denied = error.status === 403;
+        setSheetsConnection(denied ? "denied" : "reconnect");
+        setConnectionMessage(error.message || (denied ? "This Google account cannot access the forecast spreadsheet." : "Google Sheets connection expired. Reconnect before saving."));
+        if (denied) {
+          setAuthenticated(false);
+          setDataLoaded(false);
+          setData(emptyData);
+          setAppError(error.message || "This Google account cannot access the forecast spreadsheet.");
+        } else if (!dataLoaded) {
+          setAuthenticated(false);
+        }
       } else {
         setAppError(error.message || "Could not load backend data.");
         setDataLoaded(true);
       }
+      return false;
     }
   }
 
@@ -4652,16 +4671,28 @@ export default function App() {
     setReconnectingSheets(true);
     setSheetsConnection("checking");
     setConnectionMessage("Waiting for Google account authorization...");
+    setAppError("");
     try {
       await api.login();
+      setAuthenticated(false);
+      setDataLoaded(false);
+      setData(emptyData);
       const connection = await api.checkGoogleSheetsConnection({ force: true });
-      setAuthenticated(true);
-      await refreshData(true);
+      if (!connection.connected) throw new Error("This Google account is not authorized for the forecast spreadsheet.");
+      const dataAuthorized = await refreshData(true);
+      const verifiedConnection = api.getGoogleSheetsConnection?.();
+      if (!dataAuthorized || !verifiedConnection?.connected) {
+        const authorizationError = new Error("This Google account is not listed in UserRoles for the forecast.");
+        authorizationError.status = verifiedConnection?.status === "denied" ? 403 : 401;
+        throw authorizationError;
+      }
       setSheetsConnection("connected");
-      setConnectionMessage(connection.email ? `Connected to Google Sheets as ${connection.email}.` : "Google Sheets connection renewed and confirmed.");
+      setConnectionMessage(verifiedConnection.email ? `Connected to Google Sheets as ${verifiedConnection.email}.` : "Google Sheets connection renewed and confirmed.");
     } catch (error) {
-      setSheetsConnection("reconnect");
+      const denied = error.status === 403;
+      setSheetsConnection(denied ? "denied" : "reconnect");
       setConnectionMessage(error.message || "Google sign-in failed. Try the full-page sign-in option.");
+      setAppError(error.message || "Google sign-in failed. Try an account with spreadsheet access.");
     } finally {
       setReconnectingSheets(false);
     }
@@ -4861,7 +4892,7 @@ export default function App() {
   }
 
   if (!authenticated) {
-    return <PasswordGate onLogin={refreshData} />;
+    return <PasswordGate onLogin={refreshData} externalError={appError} />;
   }
 
   if (!dataLoaded) {

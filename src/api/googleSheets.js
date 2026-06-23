@@ -63,12 +63,14 @@ let tokenExpiry = Number(localStorage.getItem(TOKEN_EXP_KEY)) || 0;
 let signedInEmail = loadStored(EMAIL_KEY);
 let signedInGoogleSub = loadStored(SUB_KEY);
 let lastConnectionCheckAt = 0;
+let spreadsheetAccessVerified = false;
+let spreadsheetAccessDenied = false;
 
 function emitConnectionState(status, message = "") {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent("midas-google-sheets-connection", {
-      detail: { status, message, expiresAt: tokenExpiry, email: signedInEmail }
+      detail: { status, message, authorized: spreadsheetAccessVerified, expiresAt: tokenExpiry, email: signedInEmail }
     })
   );
 }
@@ -82,10 +84,15 @@ function persistAccessToken(token, expiresInSeconds) {
     localStorage.setItem(TOKEN_KEY, token);
     localStorage.setItem(TOKEN_EXP_KEY, String(tokenExpiry));
     sessionStorage.setItem("midas-google-session", "true");
-    emitConnectionState("connected", "Google access renewed.");
+    spreadsheetAccessVerified = false;
+    spreadsheetAccessDenied = false;
+    lastConnectionCheckAt = 0;
+    emitConnectionState("checking", "Google account signed in; verifying spreadsheet access...");
   } else {
     tokenExpiry = 0;
     lastConnectionCheckAt = 0;
+    spreadsheetAccessVerified = false;
+    spreadsheetAccessDenied = false;
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(TOKEN_EXP_KEY);
     emitConnectionState("reconnect", "Google Sheets access needs to be renewed.");
@@ -96,6 +103,11 @@ let allDataCache = null;
 const sheetCache = {};
 const sheetHeaders = {};
 const CORE_READ_SHEETS = ["Teams", "Deals", "MonthlyGoals", "UserRoles", "Settings"];
+
+function clearCachedSheetData() {
+  allDataCache = null;
+  Object.keys(sheetCache).forEach((sheetName) => delete sheetCache[sheetName]);
+}
 
 function extractSpreadsheetId(value) {
   const text = String(value || "").trim();
@@ -109,6 +121,9 @@ export function getSpreadsheetId() {
 
 export function setSpreadsheetId(nextId) {
   spreadsheetId = extractSpreadsheetId(nextId);
+  spreadsheetAccessVerified = false;
+  spreadsheetAccessDenied = false;
+  lastConnectionCheckAt = 0;
   localStorage.setItem("midas-google-spreadsheet-id", spreadsheetId);
 }
 
@@ -141,7 +156,14 @@ function rememberGoogleIdentity(identity = {}) {
   }
   if (signedInEmail || signedInGoogleSub) sessionStorage.removeItem("midas-google-email-error");
   if (accessToken && (signedInEmail || signedInGoogleSub)) {
-    emitConnectionState("connected", signedInEmail ? `Connected as ${signedInEmail}.` : "Google identity confirmed.");
+    emitConnectionState(
+      spreadsheetAccessVerified ? "connected" : "checking",
+      signedInEmail
+        ? spreadsheetAccessVerified
+          ? `Connected as ${signedInEmail}.`
+          : `Signed in as ${signedInEmail}; verifying spreadsheet access...`
+        : "Google identity confirmed; verifying spreadsheet access..."
+    );
   }
 }
 
@@ -227,6 +249,7 @@ export function consumeRedirectToken() {
   if (error) throw new Error(hash.get("error_description") || error);
   if (!token) return false;
   clearStoredGoogleIdentity();
+  clearCachedSheetData();
   persistAccessToken(token, hash.get("expires_in"));
   window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
   return true;
@@ -285,7 +308,10 @@ function buildTokenClient() {
         resolver?.reject(new Error(response.error));
         return;
       }
-      if (resolver?.interactive) clearStoredGoogleIdentity();
+      if (resolver?.interactive) {
+        clearStoredGoogleIdentity();
+        clearCachedSheetData();
+      }
       persistAccessToken(response.access_token, response.expires_in);
       rememberGoogleIdentity(decodeJwtPayload(response.id_token));
       if (resolver?.interactive) await refreshUserEmail({ force: true });
@@ -311,7 +337,10 @@ async function requestToken(interactive) {
   const bridge = desktopBridge();
   if (bridge) {
     const result = await bridge.getToken(interactive);
-    if (interactive) clearStoredGoogleIdentity();
+    if (interactive) {
+      clearStoredGoogleIdentity();
+      clearCachedSheetData();
+    }
     persistAccessToken(result.access_token, result.expires_in);
     if (result.email || result.sub) rememberGoogleIdentity({ email: result.email, sub: result.sub });
     if (interactive && (!signedInEmail || !signedInGoogleSub)) await refreshUserEmail({ force: true });
@@ -358,10 +387,12 @@ export function isSignedIn() {
 }
 
 export function getGoogleSheetsConnection() {
-  const connected = Boolean(accessToken && Date.now() < tokenExpiry);
+  const tokenValid = Boolean(accessToken && Date.now() < tokenExpiry);
+  const connected = Boolean(tokenValid && spreadsheetAccessVerified);
   return {
-    status: connected ? "connected" : "reconnect",
+    status: connected ? "connected" : tokenValid && spreadsheetAccessDenied ? "denied" : tokenValid ? "checking" : "reconnect",
     connected,
+    authorized: spreadsheetAccessVerified,
     expiresAt: tokenExpiry,
     email: signedInEmail
   };
@@ -372,6 +403,7 @@ export async function checkGoogleSheetsConnection({ force = false } = {}) {
   if (
     !force &&
     accessToken &&
+    spreadsheetAccessVerified &&
     Date.now() < tokenExpiry &&
     Date.now() - lastConnectionCheckAt < fiveMinutes
   ) {
@@ -391,6 +423,7 @@ export function signOut() {
     }
   }
   clearStoredGoogleIdentity();
+  clearCachedSheetData();
   persistAccessToken("");
   sessionStorage.removeItem("midas-google-session");
   sessionStorage.removeItem("midas-google-email-error");
@@ -436,11 +469,15 @@ async function sheetsFetch(path, options = {}) {
     } catch {
       const connectionError = new Error("Cannot reach Google Sheets. Check the internet connection, then use Check & refresh.");
       connectionError.status = 0;
+      spreadsheetAccessVerified = false;
+      lastConnectionCheckAt = 0;
       emitConnectionState("reconnect", connectionError.message);
       throw connectionError;
     }
     const payload = await response.json().catch(() => ({}));
     if (response.ok) {
+      spreadsheetAccessVerified = true;
+      spreadsheetAccessDenied = false;
       lastConnectionCheckAt = Date.now();
       emitConnectionState("connected", "Google Sheets connection confirmed.");
       return payload;
@@ -462,7 +499,10 @@ async function sheetsFetch(path, options = {}) {
     }
     if (response.status === 401) persistAccessToken("");
     if (response.status === 403) {
-      emitConnectionState("reconnect", payload.error?.message || "This Google account cannot access the forecast spreadsheet.");
+      spreadsheetAccessVerified = false;
+      spreadsheetAccessDenied = true;
+      lastConnectionCheckAt = 0;
+      emitConnectionState("denied", payload.error?.message || "This Google account cannot access the forecast spreadsheet.");
     }
     const message =
       response.status === 401
@@ -756,23 +796,21 @@ export async function readAllData() {
       throw error;
     }
   }
-  let roles = data.roles || [];
-  if (email && !roles.some((role) => role.email === email)) {
-    const timestamp = nowIso();
-    const newRole = {
-      id: createId("role"),
-      email,
-      role: "Manager",
-      teamId: "",
-      repName: "",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      googleSub: getUserGoogleSub()
-    };
-    const sheetRole = newRole;
-    await appendSheet("UserRoles", [sheetRole]);
-    roles = [...roles, normalizeRole(sheetRole)];
-    await audit("User auto-added as Manager", "UserRoles", newRole.id, { email });
+  const roles = data.roles || [];
+  const googleSub = getUserGoogleSub();
+  const authorized = roles.some(
+    (role) => (email && role.email === email) || (googleSub && role.googleSub === googleSub)
+  );
+  if (!authorized) {
+    spreadsheetAccessVerified = false;
+    spreadsheetAccessDenied = true;
+    lastConnectionCheckAt = 0;
+    clearCachedSheetData();
+    const identityLabel = email || "This Google account";
+    const error = new Error(`${identityLabel} is not listed in UserRoles for this forecast.`);
+    error.status = 403;
+    emitConnectionState("denied", error.message);
+    throw error;
   }
   allDataCache = { ...data, roles };
   return allDataCache;
