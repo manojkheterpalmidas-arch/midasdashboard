@@ -120,9 +120,18 @@ export function getUserGoogleSub() {
   return signedInGoogleSub || loadStored(SUB_KEY);
 }
 
+function clearStoredGoogleIdentity() {
+  signedInEmail = "";
+  signedInGoogleSub = "";
+  localStorage.removeItem(EMAIL_KEY);
+  localStorage.removeItem(SUB_KEY);
+  sessionStorage.removeItem(EMAIL_KEY);
+  sessionStorage.removeItem(SUB_KEY);
+}
+
 function rememberGoogleIdentity(identity = {}) {
   if (identity.email) {
-    signedInEmail = identity.email;
+    signedInEmail = String(identity.email).trim().toLowerCase();
     localStorage.setItem(EMAIL_KEY, signedInEmail);
   }
   const sub = identity.sub || identity.user_id || identity.userId;
@@ -131,6 +140,9 @@ function rememberGoogleIdentity(identity = {}) {
     localStorage.setItem(SUB_KEY, signedInGoogleSub);
   }
   if (signedInEmail || signedInGoogleSub) sessionStorage.removeItem("midas-google-email-error");
+  if (accessToken && (signedInEmail || signedInGoogleSub)) {
+    emitConnectionState("connected", signedInEmail ? `Connected as ${signedInEmail}.` : "Google identity confirmed.");
+  }
 }
 
 function decodeJwtPayload(token) {
@@ -145,8 +157,8 @@ function decodeJwtPayload(token) {
   }
 }
 
-async function refreshUserEmail() {
-  if (!accessToken || (signedInEmail && signedInGoogleSub)) return signedInEmail;
+async function refreshUserEmail({ force = false } = {}) {
+  if (!accessToken || (!force && signedInEmail && signedInGoogleSub)) return signedInEmail;
   const profileEndpoints = [
     "https://www.googleapis.com/oauth2/v3/userinfo",
     "https://www.googleapis.com/oauth2/v2/userinfo",
@@ -214,6 +226,7 @@ export function consumeRedirectToken() {
   const error = hash.get("error");
   if (error) throw new Error(hash.get("error_description") || error);
   if (!token) return false;
+  clearStoredGoogleIdentity();
   persistAccessToken(token, hash.get("expires_in"));
   window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
   return true;
@@ -272,18 +285,11 @@ function buildTokenClient() {
         resolver?.reject(new Error(response.error));
         return;
       }
+      if (resolver?.interactive) clearStoredGoogleIdentity();
       persistAccessToken(response.access_token, response.expires_in);
       rememberGoogleIdentity(decodeJwtPayload(response.id_token));
-      if (!signedInEmail || !signedInGoogleSub) {
-        try {
-          const profile = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-            headers: { Authorization: `Bearer ${accessToken}` }
-          }).then((res) => res.json());
-          rememberGoogleIdentity(profile);
-        } catch {
-          /* identity lookup is best-effort */
-        }
-      }
+      if (resolver?.interactive) await refreshUserEmail({ force: true });
+      else if (!signedInEmail || !signedInGoogleSub) await refreshUserEmail();
       resolver?.resolve({ ok: true, email: signedInEmail });
     },
     error_callback: (error) => {
@@ -305,8 +311,10 @@ async function requestToken(interactive) {
   const bridge = desktopBridge();
   if (bridge) {
     const result = await bridge.getToken(interactive);
+    if (interactive) clearStoredGoogleIdentity();
     persistAccessToken(result.access_token, result.expires_in);
     if (result.email || result.sub) rememberGoogleIdentity({ email: result.email, sub: result.sub });
+    if (interactive && (!signedInEmail || !signedInGoogleSub)) await refreshUserEmail({ force: true });
     return { ok: true, email: signedInEmail };
   }
   if (!clientId()) throw new Error("Missing VITE_GOOGLE_CLIENT_ID.");
@@ -317,7 +325,7 @@ async function requestToken(interactive) {
     pendingToken = null;
   }
   return new Promise((resolve, reject) => {
-    pendingToken = { resolve, reject };
+    pendingToken = { resolve, reject, interactive };
     try {
       tokenClient.requestAccessToken({ prompt: interactive ? "select_account" : "" });
     } catch (error) {
@@ -382,11 +390,8 @@ export function signOut() {
       /* best-effort: still clear local state below */
     }
   }
+  clearStoredGoogleIdentity();
   persistAccessToken("");
-  signedInEmail = "";
-  signedInGoogleSub = "";
-  localStorage.removeItem(EMAIL_KEY);
-  localStorage.removeItem(SUB_KEY);
   sessionStorage.removeItem("midas-google-session");
   sessionStorage.removeItem("midas-google-email-error");
 }
