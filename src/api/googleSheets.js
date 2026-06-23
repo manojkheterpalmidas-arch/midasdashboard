@@ -493,17 +493,21 @@ async function batchReadSheets(sheetNames = CORE_READ_SHEETS) {
 
 async function batchUpdateValues(updates) {
   if (!updates.length) return;
-  await sheetsFetch(`/values:batchUpdate?valueInputOption=USER_ENTERED`, {
+  const payload = await sheetsFetch(`/values:batchUpdate?valueInputOption=USER_ENTERED`, {
     method: "POST",
     body: JSON.stringify({
       valueInputOption: "USER_ENTERED",
       data: updates
     })
   });
+  if (Array.isArray(payload.responses) && payload.responses.length !== updates.length) {
+    throw new Error("Google Sheets did not confirm every requested update.");
+  }
+  return payload;
 }
 
-export async function readSheet(sheetName) {
-  if (sheetCache[sheetName]) return sheetCache[sheetName];
+export async function readSheet(sheetName, force = false) {
+  if (!force && sheetCache[sheetName]) return sheetCache[sheetName];
   const columns = SHEET_COLUMNS[sheetName];
   const encoded = encodeURIComponent(`${sheetName}!A:Z`);
   const payload = await sheetsFetch(`/values/${encoded}`);
@@ -530,12 +534,35 @@ export async function writeSheet(sheetName, rows) {
 export async function appendSheet(sheetName, rows) {
   const columns = SHEET_COLUMNS[sheetName];
   const encoded = encodeURIComponent(`${sheetName}!A:Z`);
-  await sheetsFetch(`/values/${encoded}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+  const payload = await sheetsFetch(`/values/${encoded}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
     method: "POST",
     body: JSON.stringify({ values: rows.map((row) => columns.map((column) => row[column] ?? "")) })
   });
+  if (Number(payload.updates?.updatedRows || 0) !== rows.length) {
+    throw new Error(`Google Sheets confirmed ${Number(payload.updates?.updatedRows || 0)} of ${rows.length} appended rows.`);
+  }
   cacheSheet(sheetName, [...(sheetCache[sheetName] || []), ...rows]);
   allDataCache = dataFromSheetCache();
+}
+
+async function confirmPersistedRows(sheetName, expectedRows) {
+  const confirmedRows = await readSheet(sheetName, true);
+  const confirmedById = new Map(confirmedRows.map((row) => [String(row.id || ""), row]));
+  const missing = expectedRows.filter((row) => !confirmedById.has(String(row.id || "")));
+  if (missing.length) {
+    throw new Error(
+      `Google Sheets did not return ${missing.length} saved ${sheetName === "Deals" ? "deal" : "record"}${missing.length === 1 ? "" : "s"}. Please retry; the form has been kept open.`
+    );
+  }
+  return expectedRows.map((row) => confirmedById.get(String(row.id)));
+}
+
+async function auditBestEffort(action, entityType, entityId, details) {
+  try {
+    await audit(action, entityType, entityId, details);
+  } catch (error) {
+    console.warn("Audit log write failed after the main Google Sheets save succeeded.", error);
+  }
 }
 
 export async function ensureSheets() {
@@ -698,9 +725,10 @@ export async function upsertRow(sheetName, row, actionLabel) {
   } else {
     await appendSheet(sheetName, [next]);
   }
+  const [confirmed] = await confirmPersistedRows(sheetName, [next]);
   allDataCache = dataFromSheetCache();
-  await audit(actionLabel || (index >= 0 ? `${sheetName} updated` : `${sheetName} created`), sheetName, next.id, next);
-  return next;
+  await auditBestEffort(actionLabel || (index >= 0 ? `${sheetName} updated` : `${sheetName} created`), sheetName, next.id, next);
+  return stripInternal(confirmed);
 }
 
 export async function deleteRow(sheetName, id, actionLabel) {
@@ -725,6 +753,7 @@ export async function upsertRows(sheetName, incomingRows, keyFn, actionLabel) {
   const nextRows = [...rows];
   const updates = [];
   const appends = [];
+  const writtenRows = [];
   let added = 0;
   let updated = 0;
   const indexByKey = new Map(rows.map((row, index) => [keyFn(row), index]));
@@ -746,12 +775,14 @@ export async function upsertRows(sheetName, incomingRows, keyFn, actionLabel) {
         majorDimension: "ROWS",
         values: [objectToValues(merged, SHEET_COLUMNS[sheetName])]
       });
+      writtenRows.push(merged);
       updated += 1;
     } else {
       const next = { ...row, id: row.id || createId(sheetName.toLowerCase()), createdAt: row.createdAt || timestamp, updatedAt: timestamp };
       indexByKey.set(key, nextRows.length);
       nextRows.push(next);
       appends.push(next);
+      writtenRows.push(next);
       added += 1;
     }
   });
@@ -766,8 +797,9 @@ export async function upsertRows(sheetName, incomingRows, keyFn, actionLabel) {
     cacheSheet(sheetName, nextRows);
     allDataCache = dataFromSheetCache();
   }
-  await audit(actionLabel || `${sheetName} bulk upserted`, sheetName, "bulk", { added, updated });
-  return { added, updated, rows: incomingRows };
+  const confirmedRows = await confirmPersistedRows(sheetName, writtenRows);
+  await auditBestEffort(actionLabel || `${sheetName} bulk upserted`, sheetName, "bulk", { added, updated });
+  return { added, updated, rows: confirmedRows.map(stripInternal) };
 }
 
 export async function replaceSheetData(data) {

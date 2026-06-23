@@ -43,6 +43,7 @@ const DEFAULT_KRW_RATES = { KRW: 1, GBP: 1850, EUR: 1580, USD: 1350 };
 const PRIVILEGED_ROLES = ["Team Lead", "Manager"];
 const MANAGER_COMMENT_PASSWORD = "9999";
 const MANAGER_COMMENT_UNLOCK_KEY = "midas-manager-comment-unlocked";
+const DEAL_DRAFT_KEY = "midas-unsaved-deal-draft";
 const CHART_COLORS = ["#16825d", "#1d4f8f", "#d18b16", "#c24136", "#6d5bd0"];
 const RADIAN = Math.PI / 180;
 const TABS = ["Dashboard", "Teams", "Deals", "Monthly Goals", "Team View", "Team Performance", "Individual Performance", "Summary"];
@@ -1403,10 +1404,10 @@ function TeamForm({ initialTeam, onSave, onCancel }) {
   );
 }
 
-function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onCancel, rates = {} }) {
+function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onCancel, rates = {}, saving = false, error = "" }) {
   const firstTeam = teams[0];
-  const [form, setForm] = useState(
-    initialDeal || {
+  const [form, setForm] = useState(() => {
+    const blankDeal = {
       teamId: firstTeam?.id || "",
       repName: firstTeam?.reps?.[0] || "",
       year: selectedYear,
@@ -1427,8 +1428,15 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
       repComment: "",
       managerComment: "",
       nextAction: ""
+    };
+    if (initialDeal) return initialDeal;
+    try {
+      const draft = JSON.parse(sessionStorage.getItem(DEAL_DRAFT_KEY) || "null");
+      return draft && typeof draft === "object" ? { ...blankDeal, ...draft } : blankDeal;
+    } catch {
+      return blankDeal;
     }
-  );
+  });
   const initialTeam = getTeam(teams, initialDeal?.teamId || firstTeam?.id);
   // Entry currency for the amount fields — any of KRW/GBP/EUR/USD, not tied to
   // the team's home currency. Defaults to the team currency (stored values are
@@ -1436,6 +1444,10 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
   const [amountCurrency, setAmountCurrency] = useState(initialTeam?.currency || "GBP");
   const selectedTeam = getTeam(teams, form.teamId);
   const teamCurrency = selectedTeam?.currency || "GBP";
+
+  useEffect(() => {
+    if (!initialDeal) sessionStorage.setItem(DEAL_DRAFT_KEY, JSON.stringify(form));
+  }, [form, initialDeal]);
 
   function update(field, value) {
     setForm((current) => {
@@ -1475,6 +1487,10 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
 
   function submit(event) {
     event.preventDefault();
+    if (saving) return;
+    const dealId = form.id || createId("deal");
+    if (!form.id) setForm((current) => ({ ...current, id: dealId }));
+    if (!initialDeal) sessionStorage.setItem(DEAL_DRAFT_KEY, JSON.stringify({ ...form, id: dealId }));
     // Stored amounts are always in the team's home currency.
     const toLocal = (value) =>
       value === "" ? "" : convertBetween(value, amountCurrency, teamCurrency, rates);
@@ -1484,7 +1500,12 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
       maxAmount: toLocal(form.maxAmount),
       closedAmount: toLocal(form.closedAmount)
     };
-    onSave(normalizeDeal({ ...converted, id: form.id || createId("deal") }));
+    onSave(normalizeDeal({ ...converted, id: dealId }));
+  }
+
+  function cancel() {
+    if (!initialDeal) sessionStorage.removeItem(DEAL_DRAFT_KEY);
+    onCancel();
   }
 
   return (
@@ -1650,7 +1671,9 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
           <textarea className="field min-h-20" value={form.nextAction} onChange={(e) => update("nextAction", e.target.value)} />
         </div>
       </div>
-      <FormActions onCancel={onCancel} submitLabel={initialDeal ? "Save deal" : "Add deal"} />
+      {saving ? <div className="mt-4 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">Saving and verifying with Google Sheets...</div> : null}
+      {error ? <div className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</div> : null}
+      <FormActions onCancel={cancel} submitLabel={saving ? "Saving..." : initialDeal ? "Save deal" : "Add deal"} disabled={saving} />
     </form>
   );
 }
@@ -2678,6 +2701,9 @@ function TeamsPage({ data, refreshData }) {
 function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
   const [editing, setEditing] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [savingDeal, setSavingDeal] = useState(false);
+  const [dealSaveError, setDealSaveError] = useState("");
+  const [dealSaveNotice, setDealSaveNotice] = useState("");
   const [savingBulk, setSavingBulk] = useState(false);
   const rates = ratesFromSettings(data.settings, data.teams);
   const [filters, setFilters] = useState({
@@ -2699,10 +2725,23 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
       alert("You can only save deals for your assigned team/rep.");
       return;
     }
-    if (data.deals.some((item) => item.id === deal.id)) await api.updateDeal(deal.id, deal);
-    else await api.createDeal(deal);
-    await refreshData();
-    setEditing(null);
+    setSavingDeal(true);
+    setDealSaveError("");
+    setDealSaveNotice("");
+    try {
+      const editingExisting = data.deals.some((item) => item.id === deal.id);
+      if (editingExisting) await api.updateDeal(deal.id, deal);
+      else await api.createDeal(deal);
+      await refreshData();
+      sessionStorage.removeItem(DEAL_DRAFT_KEY);
+      setDealSaveNotice(`${deal.companyName} was saved and verified in Google Sheets.`);
+      setEditing(null);
+    } catch (error) {
+      const message = error.message || "Google Sheets did not confirm the save. Your form is still open; please retry.";
+      setDealSaveError(message);
+    } finally {
+      setSavingDeal(false);
+    }
   }
 
   async function saveBulkDeals(rows) {
@@ -2753,11 +2792,16 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
           <button className="btn-secondary" onClick={() => setBulkOpen(true)}>
             Bulk add deals
           </button>
-          <button className="btn-primary" onClick={() => setEditing({})}>
+          <button className="btn-primary" onClick={() => { setDealSaveError(""); setEditing({}); }}>
             Add Deal
           </button>
         </div>
       </div>
+      {dealSaveNotice ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+          {dealSaveNotice}
+        </div>
+      ) : null}
       <div className="panel p-4">
         <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">
           <div>
@@ -2855,7 +2899,7 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
             {
               header: "Edit",
               render: (row) => (
-                <button className="btn-secondary" onClick={() => setEditing(row)}>
+                <button className="btn-secondary" onClick={() => { setDealSaveError(""); setEditing(row); }}>
                   Edit
                 </button>
               )
@@ -2872,7 +2916,7 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
         />
       </div>
       {editing ? (
-        <Modal title={editing.id ? "Edit Deal" : "Add Deal"} onClose={() => setEditing(null)}>
+        <Modal title={editing.id ? "Edit Deal" : "Add Deal"} onClose={() => { if (!savingDeal) setEditing(null); }}>
           <DealForm
             teams={data.teams}
             initialDeal={editing.id ? editing : null}
@@ -2881,6 +2925,8 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access }) {
             onSave={saveDeal}
             onCancel={() => setEditing(null)}
             rates={rates}
+            saving={savingDeal}
+            error={dealSaveError}
           />
         </Modal>
       ) : null}
@@ -4460,6 +4506,14 @@ export default function App() {
       setEmailLookupError(api.getUserEmailError?.() || "");
       const cachedData = !force ? api.getCachedData() : null;
       const nextData = cachedData || (await api.readAllData());
+      try {
+        const savedDraft = JSON.parse(sessionStorage.getItem(DEAL_DRAFT_KEY) || "null");
+        if (savedDraft?.id && nextData.deals.some((deal) => deal.id === savedDraft.id)) {
+          sessionStorage.removeItem(DEAL_DRAFT_KEY);
+        }
+      } catch {
+        sessionStorage.removeItem(DEAL_DRAFT_KEY);
+      }
       const finalEmail = api.getUserEmail() || resolvedEmail || "";
       setUserEmail(finalEmail);
       setUserGoogleSub(api.getUserGoogleSub?.() || "");
