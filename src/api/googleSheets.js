@@ -94,6 +94,7 @@ function persistAccessToken(token, expiresInSeconds) {
 let spreadsheetId = extractSpreadsheetId(import.meta.env.VITE_DEFAULT_SPREADSHEET_ID || localStorage.getItem("midas-google-spreadsheet-id") || "");
 let allDataCache = null;
 const sheetCache = {};
+const sheetHeaders = {};
 const CORE_READ_SHEETS = ["Teams", "Deals", "MonthlyGoals", "UserRoles", "Settings"];
 
 function extractSpreadsheetId(value) {
@@ -473,33 +474,46 @@ async function sheetsFetch(path, options = {}) {
 function rowsToObjects(values = [], columns) {
   const [header = columns, ...rows] = values;
   return rows
-    .map((row, rowIndex) =>
-      columns.reduce(
-        (record, column) => {
+    .map((row, rowIndex) => {
+      const record = columns.reduce(
+        (nextRecord, column) => {
         const index = header.indexOf(column);
-        record[column] = index >= 0 ? row[index] ?? "" : "";
-        return record;
+        nextRecord[column] = index >= 0 ? row[index] ?? "" : "";
+        return nextRecord;
         },
         { __rowNumber: rowIndex + 2 }
-      )
-    )
+      );
+      header.forEach((column, index) => {
+        if (column && !Object.prototype.hasOwnProperty.call(record, column)) record[column] = row[index] ?? "";
+      });
+      return record;
+    })
     .filter((row) => Object.keys(row).some((key) => key !== "__rowNumber" && String(row[key] || "").trim() !== ""));
-}
-
-function headerNeedsUpgrade(values = [], columns = []) {
-  const header = values[0] || [];
-  return columns.some((column) => !header.includes(column));
 }
 
 async function ensureSheetHeaderColumns(sheetName, values = []) {
   const columns = SHEET_COLUMNS[sheetName];
-  if (!columns || !headerNeedsUpgrade(values, columns)) return;
-  const headerRange = `${sheetName}!A1:${columnName(columns.length)}1`;
-  const range = encodeURIComponent(headerRange);
-  await sheetsFetch(`/values/${range}?valueInputOption=USER_ENTERED`, {
-    method: "PUT",
-    body: JSON.stringify({ range: headerRange, majorDimension: "ROWS", values: [columns] })
+  if (!columns) return [];
+  const canonicalNames = new Map(columns.map((column) => [column.toLowerCase(), column]));
+  const rawHeader = values[0] || [];
+  const normalizedHeader = rawHeader.map((column) => {
+    const trimmed = String(column || "").trim();
+    return canonicalNames.get(trimmed.toLowerCase()) || trimmed;
   });
+  const missingColumns = columns.filter((column) => !normalizedHeader.includes(column));
+  const nextHeader = normalizedHeader.length ? [...normalizedHeader, ...missingColumns] : [...columns];
+  const headerChanged =
+    nextHeader.length !== rawHeader.length || nextHeader.some((column, index) => column !== rawHeader[index]);
+  if (headerChanged) {
+    const headerRange = `${sheetName}!A1:${columnName(nextHeader.length)}1`;
+    const range = encodeURIComponent(headerRange);
+    await sheetsFetch(`/values/${range}?valueInputOption=USER_ENTERED`, {
+      method: "PUT",
+      body: JSON.stringify({ range: headerRange, majorDimension: "ROWS", values: [nextHeader] })
+    });
+  }
+  sheetHeaders[sheetName] = nextHeader;
+  return nextHeader;
 }
 
 function objectsToValues(rows, columns) {
@@ -508,6 +522,10 @@ function objectsToValues(rows, columns) {
 
 function objectToValues(row, columns) {
   return columns.map((column) => row[column] ?? "");
+}
+
+function writeColumnsForSheet(sheetName) {
+  return sheetHeaders[sheetName]?.length ? sheetHeaders[sheetName] : SHEET_COLUMNS[sheetName];
 }
 
 function cacheSheet(sheetName, rows) {
@@ -540,8 +558,8 @@ async function batchReadSheets(sheetNames = CORE_READ_SHEETS) {
   for (const [index, sheetName] of sheetNames.entries()) {
     const columns = SHEET_COLUMNS[sheetName];
     const values = payload.valueRanges?.[index]?.values || [columns];
-    await ensureSheetHeaderColumns(sheetName, values);
-    cacheSheet(sheetName, rowsToObjects(values, columns));
+    const header = await ensureSheetHeaderColumns(sheetName, values);
+    cacheSheet(sheetName, rowsToObjects([header, ...values.slice(1)], columns));
   }
   allDataCache = dataFromSheetCache();
   return allDataCache;
@@ -567,8 +585,9 @@ export async function readSheet(sheetName, force = false) {
   const columns = SHEET_COLUMNS[sheetName];
   const encoded = encodeURIComponent(`${sheetName}!A:Z`);
   const payload = await sheetsFetch(`/values/${encoded}`);
-  await ensureSheetHeaderColumns(sheetName, payload.values || [columns]);
-  const rows = rowsToObjects(payload.values || [columns], columns);
+  const values = payload.values || [columns];
+  const header = await ensureSheetHeaderColumns(sheetName, values);
+  const rows = rowsToObjects([header, ...values.slice(1)], columns);
   cacheSheet(sheetName, rows);
   allDataCache = dataFromSheetCache();
   return rows;
@@ -583,34 +602,53 @@ export async function writeSheet(sheetName, rows) {
     method: "PUT",
     body: JSON.stringify({ range: `${sheetName}!A1`, majorDimension: "ROWS", values: objectsToValues(rows, columns) })
   });
+  sheetHeaders[sheetName] = [...columns];
   cacheSheet(sheetName, rows);
   allDataCache = dataFromSheetCache();
 }
 
 export async function appendSheet(sheetName, rows) {
-  const columns = SHEET_COLUMNS[sheetName];
+  const columns = writeColumnsForSheet(sheetName);
   const encoded = encodeURIComponent(`${sheetName}!A:Z`);
-  const payload = await sheetsFetch(`/values/${encoded}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+  const payload = await sheetsFetch(`/values/${encoded}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS&includeValuesInResponse=true`, {
     method: "POST",
     body: JSON.stringify({ values: rows.map((row) => columns.map((column) => row[column] ?? "")) })
   });
   if (Number(payload.updates?.updatedRows || 0) !== rows.length) {
     throw new Error(`Google Sheets confirmed ${Number(payload.updates?.updatedRows || 0)} of ${rows.length} appended rows.`);
   }
+  const returnedValues = payload.updates?.updatedData?.values || [];
+  const idColumnIndex = columns.indexOf("id");
+  if (returnedValues.length && idColumnIndex >= 0) {
+    const returnedIds = returnedValues.map((values) => String(values[idColumnIndex] || "").trim());
+    const missingReceiptIds = rows.filter((row) => !returnedIds.includes(String(row.id || "").trim()));
+    if (missingReceiptIds.length) {
+      throw new Error("Google Sheets appended a row but returned an unexpected ID. The live sheet column order needs attention.");
+    }
+  }
   cacheSheet(sheetName, [...(sheetCache[sheetName] || []), ...rows]);
   allDataCache = dataFromSheetCache();
+  return payload;
 }
 
 async function confirmPersistedRows(sheetName, expectedRows) {
-  const confirmedRows = await readSheet(sheetName, true);
-  const confirmedById = new Map(confirmedRows.map((row) => [String(row.id || ""), row]));
-  const missing = expectedRows.filter((row) => !confirmedById.has(String(row.id || "")));
+  let confirmedRows = [];
+  let confirmedById = new Map();
+  let missing = expectedRows;
+  const retryDelays = [0, 300, 900];
+  for (const delay of retryDelays) {
+    if (delay) await sleep(delay);
+    confirmedRows = await readSheet(sheetName, true);
+    confirmedById = new Map(confirmedRows.map((row) => [String(row.id || "").trim(), row]));
+    missing = expectedRows.filter((row) => !confirmedById.has(String(row.id || "").trim()));
+    if (!missing.length) break;
+  }
   if (missing.length) {
     throw new Error(
       `Google Sheets did not return ${missing.length} saved ${sheetName === "Deals" ? "deal" : "record"}${missing.length === 1 ? "" : "s"}. Please retry; the form has been kept open.`
     );
   }
-  return expectedRows.map((row) => confirmedById.get(String(row.id)));
+  return expectedRows.map((row) => confirmedById.get(String(row.id || "").trim()));
 }
 
 async function auditBestEffort(action, entityType, entityId, details) {
@@ -762,10 +800,21 @@ function columnName(index) {
 }
 
 async function updateSheetRow(sheetName, rowIndex, row) {
-  const columns = SHEET_COLUMNS[sheetName];
+  const columns = writeColumnsForSheet(sheetName);
   const rowNumber = row.__rowNumber || rowIndex + 2;
   const range = `${sheetName}!A${rowNumber}:${columnName(columns.length)}${rowNumber}`;
   await batchUpdateValues([{ range, majorDimension: "ROWS", values: [objectToValues(row, columns)] }]);
+}
+
+function findRowIndexById(rows, id) {
+  const expectedId = String(id || "").trim();
+  const directIndex = rows.findIndex((item) => String(item.id || "").trim() === expectedId);
+  if (directIndex >= 0 || !expectedId) return directIndex;
+  return rows.findIndex((item) =>
+    Object.entries(item).some(
+      ([key, value]) => key !== "__rowNumber" && String(value || "").trim() === expectedId
+    )
+  );
 }
 
 export async function upsertRow(sheetName, row, actionLabel) {
@@ -773,7 +822,7 @@ export async function upsertRow(sheetName, row, actionLabel) {
   const timestamp = nowIso();
   const next = { ...row, id: row.id || createId(sheetName.toLowerCase()), updatedAt: timestamp };
   if (!next.createdAt) next.createdAt = timestamp;
-  const index = rows.findIndex((item) => item.id === next.id);
+  const index = findRowIndexById(rows, next.id);
   if (index >= 0) {
     const merged = { ...rows[index], ...next };
     await updateSheetRow(sheetName, index, merged);
@@ -810,6 +859,7 @@ export async function upsertRows(sheetName, incomingRows, keyFn, actionLabel) {
   const updates = [];
   const appends = [];
   const writtenRows = [];
+  const writeColumns = writeColumnsForSheet(sheetName);
   let added = 0;
   let updated = 0;
   const indexByKey = new Map(rows.map((row, index) => [keyFn(row), index]));
@@ -827,9 +877,9 @@ export async function upsertRows(sheetName, incomingRows, keyFn, actionLabel) {
       nextRows[existingIndex] = merged;
       const rowNumber = merged.__rowNumber || existingIndex + 2;
       updates.push({
-        range: `${sheetName}!A${rowNumber}:${columnName(SHEET_COLUMNS[sheetName].length)}${rowNumber}`,
+        range: `${sheetName}!A${rowNumber}:${columnName(writeColumns.length)}${rowNumber}`,
         majorDimension: "ROWS",
-        values: [objectToValues(merged, SHEET_COLUMNS[sheetName])]
+        values: [objectToValues(merged, writeColumns)]
       });
       writtenRows.push(merged);
       updated += 1;
