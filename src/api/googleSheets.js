@@ -45,6 +45,18 @@ function normalizeRoleValue(role) {
   return "Team Member";
 }
 
+function parseRepsJson(value) {
+  if (Array.isArray(value)) return value.map((rep) => String(rep).trim()).filter(Boolean);
+  const text = String(value || "").trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed.map((rep) => String(rep).trim()).filter(Boolean) : [];
+  } catch {
+    return text.split(",").map((rep) => rep.trim()).filter(Boolean);
+  }
+}
+
 // Persist auth in localStorage so it survives closing the app (sessionStorage
 // is wiped on close, which forced a fresh Google login every launch).
 const TOKEN_KEY = "midas-google-access-token";
@@ -743,7 +755,7 @@ export function normalizeTeam(row) {
   return {
     ...row,
     krwRate: Number(row.krwRate || 0),
-    reps: JSON.parse(row.repsJson || "[]")
+    reps: parseRepsJson(row.repsJson)
   };
 }
 
@@ -796,8 +808,24 @@ export async function readAllData() {
       throw error;
     }
   }
-  const roles = data.roles || [];
+  let roles = data.roles || [];
   const googleSub = getUserGoogleSub();
+  if (!roles.length && (email || googleSub)) {
+    const managerRole = await upsertRow(
+      "UserRoles",
+      {
+        id: createId("role"),
+        email: email || "",
+        role: "Manager",
+        teamId: "",
+        repName: "",
+        googleSub
+      },
+      "Initial manager role created"
+    );
+    roles = [normalizeRole(managerRole)];
+    data = { ...data, roles };
+  }
   const authorized = roles.some(
     (role) => (email && role.email === email) || (googleSub && role.googleSub === googleSub)
   );

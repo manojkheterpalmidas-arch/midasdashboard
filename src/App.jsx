@@ -41,7 +41,7 @@ const CURRENCIES = ["KRW", "GBP", "EUR", "USD"];
 const RATE_CURRENCIES = ["GBP", "EUR", "USD"];
 const DEFAULT_KRW_RATES = { KRW: 1, GBP: 1850, EUR: 1580, USD: 1350 };
 const PRIVILEGED_ROLES = ["Team Lead", "Manager"];
-const MANAGER_COMMENT_PASSWORD = "9999";
+const MANAGER_COMMENT_UNLOCK_CODE = import.meta.env.VITE_MANAGER_COMMENT_UNLOCK_CODE || "";
 const MANAGER_COMMENT_UNLOCK_KEY = "midas-manager-comment-unlocked";
 const DEAL_DRAFT_KEY = "midas-unsaved-deal-draft";
 const CHART_COLORS = ["#16825d", "#1d4f8f", "#d18b16", "#c24136", "#6d5bd0"];
@@ -4792,7 +4792,11 @@ export default function App() {
   }
 
   function unlockManagerNotes(password) {
-    if (String(password).trim() !== MANAGER_COMMENT_PASSWORD) {
+    if (!MANAGER_COMMENT_UNLOCK_CODE) {
+      alert("Manager comment unlock code is not configured.");
+      return false;
+    }
+    if (String(password).trim() !== MANAGER_COMMENT_UNLOCK_CODE) {
       alert("Incorrect manager comment password.");
       return false;
     }

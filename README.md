@@ -17,10 +17,13 @@ The app will create/use these tabs:
 - `Teams`
 - `Deals`
 - `MonthlyGoals`
+- `UserRoles`
 - `Settings`
 - `AuditLog`
 
 Share the spreadsheet with every Google account that should use the app.
+
+The first signed-in Google account is automatically added to `UserRoles` as a `Manager` when the sheet is empty. After that, access is controlled by rows in `UserRoles`.
 
 ## Environment Variables
 
@@ -29,6 +32,7 @@ Create a `.env` file for local development:
 ```env
 VITE_GOOGLE_CLIENT_ID=your-google-oauth-client-id.apps.googleusercontent.com
 VITE_DEFAULT_SPREADSHEET_ID=your-google-spreadsheet-id
+VITE_MANAGER_COMMENT_UNLOCK_CODE=your-manager-comment-unlock-code
 ```
 
 The Google OAuth client must allow the deployed site origin, for example:
@@ -47,13 +51,13 @@ https://www.googleapis.com/auth/spreadsheets
 ## Install
 
 ```bash
-npm install
+pnpm install
 ```
 
 ## Run Locally
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 Open:
@@ -65,7 +69,7 @@ http://localhost:5173
 ## Build
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 ## Preview Production Build
@@ -90,7 +94,7 @@ Set these hosting environment variables:
 
 ## Authentication
 
-Users sign in with Google OAuth. The app does not permanently store Google access tokens. The signed-in Google account must have access to the spreadsheet.
+Users sign in with Google OAuth. The signed-in Google account must have access to the spreadsheet and must be listed in `UserRoles` after first setup. Google access tokens are stored in browser storage until sign-out or expiry, so use HTTPS hosting and sign out on shared devices.
 
 ## CSV Import / Export
 
