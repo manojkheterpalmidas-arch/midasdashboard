@@ -113,6 +113,15 @@ textarea {
   --brand-green: #16825d;
   --brand-amber: #d18b16;
   --brand-red: #c24136;
+  --chart-target: #0f2742;
+  --chart-blue: #1d4f8f;
+  --chart-green: #16825d;
+  --chart-amber: #d18b16;
+  --chart-red: #c24136;
+  --chart-purple: #6d5bd0;
+  --chart-muted: #cbd5e1;
+  --chart-grid: #d8dee8;
+  --chart-axis: #475569;
   --soft-shadow: 0 12px 30px rgba(15, 39, 66, 0.08);
   --alert-blue-bg: #eff6ff;
   --alert-green-bg: #ecfdf5;
@@ -135,6 +144,15 @@ textarea {
   --brand-green: #34d399;
   --brand-amber: #fbbf24;
   --brand-red: #f87171;
+  --chart-target: #7dd3fc;
+  --chart-blue: #60a5fa;
+  --chart-green: #34d399;
+  --chart-amber: #fbbf24;
+  --chart-red: #fb7185;
+  --chart-purple: #a78bfa;
+  --chart-muted: #64748b;
+  --chart-grid: #334155;
+  --chart-axis: #cbd5e1;
   --soft-shadow: 0 18px 40px rgba(0, 0, 0, 0.32);
   --alert-blue-bg: rgba(37, 99, 235, 0.18);
   --alert-green-bg: rgba(22, 163, 74, 0.18);
@@ -155,6 +173,15 @@ textarea {
   --brand-green: #16825d;
   --brand-amber: #ad7817;
   --brand-red: #b03a2e;
+  --chart-target: #14532d;
+  --chart-blue: #256d85;
+  --chart-green: #16825d;
+  --chart-amber: #ad7817;
+  --chart-red: #b03a2e;
+  --chart-purple: #6d5bd0;
+  --chart-muted: #b8c9be;
+  --chart-grid: #c7decf;
+  --chart-axis: #405f50;
   --soft-shadow: 0 14px 32px rgba(20, 83, 45, 0.1);
   --alert-blue-bg: #e8f4f7;
   --alert-green-bg: #dcfce7;
@@ -175,6 +202,15 @@ textarea {
   --brand-green: #15803d;
   --brand-amber: #d97706;
   --brand-red: #b91c1c;
+  --chart-target: #7c2d12;
+  --chart-blue: #b45309;
+  --chart-green: #15803d;
+  --chart-amber: #d97706;
+  --chart-red: #b91c1c;
+  --chart-purple: #7c3aed;
+  --chart-muted: #e7c7aa;
+  --chart-grid: #f3d4b7;
+  --chart-axis: #7c5a43;
   --soft-shadow: 0 14px 34px rgba(124, 45, 18, 0.11);
   --alert-blue-bg: #fef3c7;
   --alert-green-bg: #ecfdf5;
@@ -195,6 +231,15 @@ textarea {
   --brand-green: #22c55e;
   --brand-amber: #f59e0b;
   --brand-red: #ef4444;
+  --chart-target: #38bdf8;
+  --chart-blue: #818cf8;
+  --chart-green: #22c55e;
+  --chart-amber: #f59e0b;
+  --chart-red: #f87171;
+  --chart-purple: #c084fc;
+  --chart-muted: #6b7280;
+  --chart-grid: #3b4252;
+  --chart-axis: #d1d5db;
   --soft-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
   --alert-blue-bg: rgba(14, 165, 233, 0.17);
   --alert-green-bg: rgba(34, 197, 94, 0.16);
@@ -335,17 +380,28 @@ textarea {
 }
 
 .theme-root .recharts-cartesian-grid line {
-  stroke: var(--border);
+  stroke: var(--chart-grid);
 }
 
 .theme-root .recharts-text,
 .theme-root .recharts-legend-item-text {
-  fill: var(--text-muted);
-  color: var(--text-muted) !important;
+  fill: var(--chart-axis);
+  color: var(--chart-axis) !important;
+}
+
+.theme-root .recharts-cartesian-axis-line,
+.theme-root .recharts-cartesian-axis-tick-line {
+  stroke: color-mix(in srgb, var(--chart-axis) 72%, transparent);
 }
 
 .theme-root .recharts-default-tooltip {
   background-color: var(--panel-bg) !important;
   border-color: var(--border) !important;
+  color: var(--text) !important;
+  box-shadow: var(--soft-shadow);
+}
+
+.theme-root .recharts-tooltip-label,
+.theme-root .recharts-tooltip-item {
   color: var(--text) !important;
 }

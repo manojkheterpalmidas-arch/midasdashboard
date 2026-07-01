@@ -44,7 +44,19 @@ const PRIVILEGED_ROLES = ["Team Lead", "Manager"];
 const MANAGER_COMMENT_UNLOCK_CODE = import.meta.env.VITE_MANAGER_COMMENT_UNLOCK_CODE || "";
 const MANAGER_COMMENT_UNLOCK_KEY = "midas-manager-comment-unlocked";
 const DEAL_DRAFT_KEY = "midas-unsaved-deal-draft";
-const CHART_COLORS = ["#16825d", "#1d4f8f", "#d18b16", "#c24136", "#6d5bd0"];
+const CHART_COLORS = [
+  "var(--chart-green)",
+  "var(--chart-blue)",
+  "var(--chart-amber)",
+  "var(--chart-red)",
+  "var(--chart-purple)"
+];
+const CHART_TARGET = "var(--chart-target)";
+const CHART_BLUE = "var(--chart-blue)";
+const CHART_GREEN = "var(--chart-green)";
+const CHART_AMBER = "var(--chart-amber)";
+const CHART_RED = "var(--chart-red)";
+const CHART_MUTED = "var(--chart-muted)";
 const THEMES = [
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
@@ -2535,10 +2547,10 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
   });
 
   const coveragePie = [
-    { name: "Closed", value: metrics.closed, color: "#16825d" },
-    { name: "Open Min", value: metrics.min, color: "#1d4f8f" },
-    { name: "Upside", value: Math.max(metrics.max - metrics.min, 0), color: "#d18b16" },
-    { name: "Remaining to Target", value: Math.max(metrics.target - metrics.achievementMax, 0), color: "#c24136" }
+    { name: "Closed", value: metrics.closed, color: CHART_GREEN },
+    { name: "Open Min", value: metrics.min, color: CHART_BLUE },
+    { name: "Upside", value: Math.max(metrics.max - metrics.min, 0), color: CHART_AMBER },
+    { name: "Remaining to Target", value: Math.max(metrics.target - metrics.achievementMax, 0), color: CHART_RED }
   ].filter((item) => item.value > 0);
 
   const closedHelper = closedAchievementHelper(metrics, displayCurrency);
@@ -2599,9 +2611,9 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
               <YAxis tickFormatter={(value) => chartAxisTick(value, displayCurrency)} />
               <Tooltip formatter={(value) => formatChartMoney(value, displayCurrency)} />
               <Legend />
-              <Bar dataKey="Target" fill="#0f2742" />
-              <Bar dataKey="Achievement + Min" fill="#16825d" />
-              <Bar dataKey="Achievement + Max" fill="#1d4f8f" />
+              <Bar dataKey="Target" fill={CHART_TARGET} />
+              <Bar dataKey="Achievement + Min" fill={CHART_GREEN} />
+              <Bar dataKey="Achievement + Max" fill={CHART_BLUE} />
             </BarChart>
           </ResponsiveContainer>
         </ChartPanel>
@@ -2653,8 +2665,8 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
               <YAxis tickFormatter={(value) => chartAxisTick(value, displayCurrency)} />
               <Tooltip formatter={(value) => formatChartMoney(value, displayCurrency)} />
               <Legend />
-              <Bar dataKey="Min Forecast" stackId="a" fill="#16825d" />
-              <Bar dataKey="Max Upside" stackId="a" fill="#d18b16" />
+              <Bar dataKey="Min Forecast" stackId="a" fill={CHART_GREEN} />
+              <Bar dataKey="Max Upside" stackId="a" fill={CHART_AMBER} />
             </BarChart>
           </ResponsiveContainer>
         </ChartPanel>
@@ -3847,8 +3859,8 @@ function TeamView({
                 <YAxis tickFormatter={(value) => chartAxisTick(value, currency)} />
                 <Tooltip formatter={(value) => formatChartMoney(value, currency)} />
                 <Legend />
-                <Line type="linear" dataKey="Sales" name="Monthly Sales" stroke="#1d4f8f" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                <Line type="linear" dataKey="Goal" name="Monthly Goal" stroke="#d18b16" strokeWidth={2.5} strokeDasharray="6 5" dot={{ r: 3 }} />
+                <Line type="linear" dataKey="Sales" name="Monthly Sales" stroke={CHART_BLUE} strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                <Line type="linear" dataKey="Goal" name="Monthly Goal" stroke={CHART_AMBER} strokeWidth={2.5} strokeDasharray="6 5" dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           </ChartPanel>
@@ -3860,8 +3872,8 @@ function TeamView({
                 <YAxis tickFormatter={(value) => chartAxisTick(value, currency)} />
                 <Tooltip formatter={(value) => formatChartMoney(value, currency)} />
                 <Legend />
-                <Line type="linear" dataKey="Cumulative" name="Cumulative Sales" stroke="#16825d" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                <Line type="linear" dataKey="Cumulative Goal" stroke="#c24136" strokeWidth={2.5} strokeDasharray="6 5" dot={{ r: 3 }} />
+                <Line type="linear" dataKey="Cumulative" name="Cumulative Sales" stroke={CHART_GREEN} strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                <Line type="linear" dataKey="Cumulative Goal" stroke={CHART_RED} strokeWidth={2.5} strokeDasharray="6 5" dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           </ChartPanel>
@@ -3889,8 +3901,8 @@ function TeamView({
               <YAxis tickFormatter={(value) => chartAxisTick(value, currency)} />
               <Tooltip formatter={(value) => formatChartMoney(value, currency)} />
               <Legend />
-              <Bar dataKey="Target" fill="#0f2742" />
-              <Bar dataKey="Achievement + Max" fill="#16825d" />
+              <Bar dataKey="Target" fill={CHART_TARGET} />
+              <Bar dataKey="Achievement + Max" fill={CHART_GREEN} />
             </BarChart>
           </ResponsiveContainer>
         </ChartPanel>
@@ -4016,10 +4028,10 @@ function IndividualPerformancePage({ data, selectedYear, selectedHalfYear }) {
       <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
         {rows.map((row, index) => {
           const pieData = [
-            { name: "Achieved", value: row.closed, color: "#16825d" },
-            { name: "Remaining", value: row.remaining, color: "#c24136" }
+            { name: "Achieved", value: row.closed, color: CHART_GREEN },
+            { name: "Remaining", value: row.remaining, color: CHART_RED }
           ].filter((item) => item.value > 0);
-          if (!pieData.length) pieData.push({ name: "No goal set", value: 1, color: "#cbd5e1" });
+          if (!pieData.length) pieData.push({ name: "No goal set", value: 1, color: CHART_MUTED });
           return (
             <div key={row.id} className="panel p-4">
               <div className="mb-3 flex items-start justify-between gap-3">
@@ -4170,10 +4182,10 @@ function TeamPerformancePage({ data, selectedYear, selectedHalfYear }) {
       <div className="grid gap-4 xl:grid-cols-2">
         {rows.map((row, index) => {
           const pieData = [
-            { name: "Achieved", value: row.closed, color: "#16825d" },
-            { name: "Remaining", value: row.remaining, color: "#c24136" }
+            { name: "Achieved", value: row.closed, color: CHART_GREEN },
+            { name: "Remaining", value: row.remaining, color: CHART_RED }
           ].filter((item) => item.value > 0);
-          if (!pieData.length) pieData.push({ name: "No goal set", value: 1, color: "#cbd5e1" });
+          if (!pieData.length) pieData.push({ name: "No goal set", value: 1, color: CHART_MUTED });
           return (
             <div key={row.id} className="panel p-4">
               <div className="mb-4 flex items-start justify-between gap-3">
@@ -4529,8 +4541,8 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
               <YAxis tickFormatter={(value) => chartAxisTick(value, displayCurrency)} />
               <Tooltip formatter={(value) => formatChartMoney(value, displayCurrency)} />
               <Legend />
-              <Bar dataKey="Target" fill="#0f2742" />
-              <Bar dataKey="Achievement + Max" fill="#16825d" />
+              <Bar dataKey="Target" fill={CHART_TARGET} />
+              <Bar dataKey="Achievement + Max" fill={CHART_GREEN} />
             </BarChart>
           </ResponsiveContainer>
         </ChartPanel>
@@ -4542,8 +4554,8 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
               <YAxis tickFormatter={(value) => chartAxisTick(value, displayCurrency)} />
               <Tooltip formatter={(value) => formatChartMoney(value, displayCurrency)} />
               <Legend />
-              <Bar dataKey="Target" fill="#0f2742" />
-              <Bar dataKey="Achievement + Max" fill="#16825d" />
+              <Bar dataKey="Target" fill={CHART_TARGET} />
+              <Bar dataKey="Achievement + Max" fill={CHART_GREEN} />
             </BarChart>
           </ResponsiveContainer>
         </ChartPanel>
