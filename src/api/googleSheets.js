@@ -30,6 +30,7 @@ export const SHEET_COLUMNS = {
   MonthlyGoals: ["id", "teamId", "repName", "year", "month", "category", "goalType", "targetAmount", "createdAt", "updatedAt"],
   UserRoles: ["id", "email", "role", "teamId", "repName", "createdAt", "updatedAt", "googleSub"],
   Settings: ["key", "value"],
+  Notifications: ["id", "timestamp", "dealId", "teamId", "repName", "recipientEmail", "recipientName", "actorEmail", "type", "message", "readAt"],
   AuditLog: ["id", "timestamp", "userEmail", "action", "entityType", "entityId", "detailsJson"]
 };
 
@@ -114,7 +115,7 @@ let spreadsheetId = extractSpreadsheetId(import.meta.env.VITE_DEFAULT_SPREADSHEE
 let allDataCache = null;
 const sheetCache = {};
 const sheetHeaders = {};
-const CORE_READ_SHEETS = ["Teams", "Deals", "MonthlyGoals", "UserRoles", "Settings"];
+const CORE_READ_SHEETS = ["Teams", "Deals", "MonthlyGoals", "UserRoles", "Settings", "Notifications"];
 
 function clearCachedSheetData() {
   allDataCache = null;
@@ -600,7 +601,8 @@ function dataFromSheetCache() {
     deals: (sheetCache.Deals || []).map(stripInternal).map(normalizeDeal),
     goals: (sheetCache.MonthlyGoals || []).map(stripInternal).map(normalizeGoal),
     roles: (sheetCache.UserRoles || []).map(stripInternal).map(normalizeRole),
-    settings: Object.fromEntries((sheetCache.Settings || []).map(stripInternal).map((row) => [row.key, row.value]))
+    settings: Object.fromEntries((sheetCache.Settings || []).map(stripInternal).map((row) => [row.key, row.value])),
+    notifications: (sheetCache.Notifications || []).map(stripInternal)
   };
 }
 
@@ -641,7 +643,17 @@ export async function readSheet(sheetName, force = false) {
   if (!force && sheetCache[sheetName]) return sheetCache[sheetName];
   const columns = SHEET_COLUMNS[sheetName];
   const encoded = encodeURIComponent(`${sheetName}!A:Z`);
-  const payload = await sheetsFetch(`/values/${encoded}`);
+  let payload;
+  try {
+    payload = await sheetsFetch(`/values/${encoded}`);
+  } catch (error) {
+    if (String(error.message || "").includes("Unable to parse range")) {
+      await ensureSheets();
+      payload = await sheetsFetch(`/values/${encoded}`);
+    } else {
+      throw error;
+    }
+  }
   const values = payload.values || [columns];
   const header = await ensureSheetHeaderColumns(sheetName, values);
   const rows = rowsToObjects([header, ...values.slice(1)], columns);
@@ -985,7 +997,8 @@ export async function replaceSheetData(data) {
     writeSheet("Deals", data.deals || []),
     writeSheet("MonthlyGoals", data.goals || []),
     writeSheet("UserRoles", data.roles || data.userRoles || []),
-    writeSheet("Settings", Object.entries(data.settings || {}).map(([key, value]) => ({ key, value })))
+    writeSheet("Settings", Object.entries(data.settings || {}).map(([key, value]) => ({ key, value }))),
+    writeSheet("Notifications", data.notifications || [])
   ]);
   await audit("JSON backup imported", "Backup", "full", {});
 }

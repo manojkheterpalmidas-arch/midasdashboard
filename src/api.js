@@ -113,6 +113,29 @@ function goalKey(goal) {
   return [goal.teamId, goal.repName, goal.year, goal.month, goal.category, goal.goalType].map((part) => String(part || "").toLowerCase()).join("|");
 }
 
+function notificationKey(notification) {
+  return String(notification.id || "").toLowerCase();
+}
+
+function teamMemberNotificationRecipients(data, deal) {
+  const team = (data.teams || []).find((item) => item.id === deal.teamId);
+  const roleRecipients = (data.roles || [])
+    .filter((role) => role.teamId === deal.teamId && ["Team Member", "Team Lead"].includes(normalizeRoleValue(role.role)))
+    .map((role) => ({
+      email: String(role.email || "").trim().toLowerCase(),
+      name: role.repName || role.email || role.role
+    }));
+  const fallbackRecipients = (team?.reps || []).map((repName) => ({ email: "", name: repName }));
+  const recipients = roleRecipients.length ? roleRecipients : fallbackRecipients;
+  const seen = new Set();
+  return recipients.filter((recipient) => {
+    const key = recipient.email || recipient.name;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function emptyPreview() {
   return {
     validRows: [],
@@ -337,6 +360,30 @@ export const api = {
   updateDeal: async (id, deal) => upsertRow("Deals", cleanDeal({ ...deal, id }), "Deal updated"),
   createDealsBulk: async (deals) => upsertRows("Deals", deals.map(cleanDeal), dealKey, "Bulk deals saved"),
   deleteDeal: async (id) => deleteRow("Deals", id, "Deal deleted"),
+  notifyManagerComment: async (deal, managerComment) => {
+    const comment = String(managerComment || "").trim();
+    if (!comment) return { sent: 0 };
+    const data = getCachedData() || (await readAllData());
+    const recipients = teamMemberNotificationRecipients(data, deal);
+    const timestamp = new Date().toISOString();
+    const actorEmail = getUserEmail();
+    const rows = recipients.map((recipient) => ({
+      id: createId("notification"),
+      timestamp,
+      dealId: deal.id,
+      teamId: deal.teamId,
+      repName: deal.repName,
+      recipientEmail: recipient.email,
+      recipientName: recipient.name,
+      actorEmail,
+      type: "Manager Comment",
+      message: `Manager comment on ${deal.companyName}: ${comment}`,
+      readAt: ""
+    }));
+    if (!rows.length) return { sent: 0 };
+    await upsertRows("Notifications", rows, notificationKey, "Manager comment notification");
+    return { sent: rows.length };
+  },
 
   getGoals: async () => (getCachedData()?.goals || (await readAllData()).goals),
   createGoal: async (goal) => upsertRow("MonthlyGoals", cleanGoal(goal), "Goal created"),

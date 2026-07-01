@@ -484,6 +484,7 @@ function emptyData() {
     deals: [],
     goals: [],
     roles: [],
+    notifications: [],
     settings: {},
     preparedBy: "Vito Lee",
     lastUpdated: ""
@@ -539,6 +540,42 @@ function formatMoney(value, currency = "KRW") {
     currency,
     maximumFractionDigits: 0
   }).format(amount);
+}
+
+function parseDealDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function dealOpenedAt(deal) {
+  return parseDealDate(deal.createdAt);
+}
+
+function formatShortDate(value) {
+  const date = parseDealDate(value);
+  if (!date) return "-";
+  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(date);
+}
+
+function daysOpenLabel(deal) {
+  const openedAt = dealOpenedAt(deal);
+  if (!openedAt) return "No open date";
+  const start = new Date(openedAt.getFullYear(), openedAt.getMonth(), openedAt.getDate());
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.max(0, Math.floor((today.getTime() - start.getTime()) / 86400000));
+  return days === 1 ? "1 day open" : `${days} days open`;
+}
+
+function DealOpenedCell({ deal }) {
+  return (
+    <div className="space-y-1">
+      <div className="font-semibold text-midas-ink">{formatShortDate(dealOpenedAt(deal))}</div>
+      <div className="text-xs font-semibold text-slate-500">{daysOpenLabel(deal)}</div>
+    </div>
+  );
 }
 
 function formatCompactMoney(value, currency = "KRW") {
@@ -1436,7 +1473,7 @@ function FormActions({ onCancel, submitLabel, disabled = false }) {
   );
 }
 
-function TeamForm({ initialTeam, onSave, onCancel }) {
+function TeamForm({ initialTeam, onSave, onCancel, saving = false }) {
   const [form, setForm] = useState(
     initialTeam || {
       teamName: "",
@@ -1499,7 +1536,7 @@ function TeamForm({ initialTeam, onSave, onCancel }) {
           />
         </div>
       </div>
-      <FormActions onCancel={onCancel} submitLabel={initialTeam ? "Save team" : "Add team"} />
+      <FormActions onCancel={onCancel} submitLabel={saving ? "Saving..." : initialTeam ? "Save team" : "Add team"} disabled={saving} />
     </form>
   );
 }
@@ -2730,23 +2767,46 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
   );
 }
 
-function TeamsPage({ data, refreshData }) {
+function TeamsPage({ data, refreshData, connectionStatus = "connected" }) {
   const [editing, setEditing] = useState(null);
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   async function saveTeam(team) {
-    // Stamp the currency's central KRW rate onto the persisted row so exports
-    // and the raw sheet stay consistent; it is re-derived from Settings on load.
-    const withRate = { ...team, krwRate: rateForCurrency(team.currency, data.settings, data.teams) };
-    if (data.teams.some((item) => item.id === withRate.id)) await api.updateTeam(withRate.id, withRate);
-    else await api.createTeam(withRate);
-    await refreshData();
-    setEditing(null);
+    if (connectionStatus !== "connected") {
+      setSaveError("Google Sheets is not connected. Use Reconnect Google Sheets at the top, then retry this save.");
+      return;
+    }
+    setSaving(true);
+    setSaveError("");
+    try {
+      // Stamp the currency's central KRW rate onto the persisted row so exports
+      // and the raw sheet stay consistent; it is re-derived from Settings on load.
+      const withRate = { ...team, krwRate: rateForCurrency(team.currency, data.settings, data.teams) };
+      if (data.teams.some((item) => item.id === withRate.id)) await api.updateTeam(withRate.id, withRate);
+      else await api.createTeam(withRate);
+      await refreshData();
+      setEditing(null);
+    } catch (error) {
+      setSaveError(error.message || "Google Sheets did not confirm the team save. Please retry.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function deleteTeam(teamId) {
+    if (connectionStatus !== "connected") {
+      setSaveError("Google Sheets is not connected. Use Reconnect Google Sheets at the top, then retry this delete.");
+      return;
+    }
     if (!confirm("Delete this team and its related deals/goals?")) return;
-    await api.deleteTeam(teamId);
-    await refreshData();
+    setSaveError("");
+    try {
+      await api.deleteTeam(teamId);
+      await refreshData();
+    } catch (error) {
+      setSaveError(error.message || "Google Sheets did not confirm the team delete. Please retry.");
+    }
   }
 
   return (
@@ -2756,10 +2816,11 @@ function TeamsPage({ data, refreshData }) {
           <h2 className="section-title">Teams</h2>
           <p className="text-sm text-slate-500">Manage team setup, currencies, and reps. KRW rates are set centrally in the Exchange Rates bar.</p>
         </div>
-        <button className="btn-primary" onClick={() => setEditing({})}>
+        <button className="btn-primary" onClick={() => { setSaveError(""); setEditing({}); }}>
           Add Team
         </button>
       </div>
+      {saveError ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{saveError}</div> : null}
       <div className="panel">
         <DataTable
           rows={data.teams}
@@ -2773,7 +2834,7 @@ function TeamsPage({ data, refreshData }) {
             {
               header: "Edit",
               render: (row) => (
-                <button className="btn-secondary" onClick={() => setEditing(row)}>
+                <button className="btn-secondary" onClick={() => { setSaveError(""); setEditing(row); }}>
                   Edit
                 </button>
               )
@@ -2791,7 +2852,8 @@ function TeamsPage({ data, refreshData }) {
       </div>
       {editing ? (
         <Modal title={editing.id ? "Edit Team" : "Add Team"} onClose={() => setEditing(null)}>
-          <TeamForm initialTeam={editing.id ? editing : null} onSave={saveTeam} onCancel={() => setEditing(null)} />
+          {saveError ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{saveError}</div> : null}
+          <TeamForm initialTeam={editing.id ? editing : null} onSave={saveTeam} onCancel={() => setEditing(null)} saving={saving} />
         </Modal>
       ) : null}
     </div>
@@ -2976,6 +3038,7 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access, con
         <DataTable
           rows={filteredDeals}
           columns={[
+            { header: "Opened", render: (row) => <DealOpenedCell deal={row} /> },
             { header: "Month", render: (row) => `${monthName(row.month)} ${row.year}` },
             { header: "Team", render: (row) => getTeam(data.teams, row.teamId)?.teamName || "" },
             { header: "Rep", render: (row) => row.repName },
@@ -3462,6 +3525,7 @@ function ForecastTable({ title, deals, team, currency, displayFactor = 1, includ
   const totalMaxDisplay = displayAmount(totalMax);
   const totalClosedDisplay = displayAmount(totalClosed);
   const forecastColumnWidths = {
+    opened: "5.5%",
     company: "6%",
     product: "4.5%",
     rep: "4.5%",
@@ -3471,12 +3535,13 @@ function ForecastTable({ title, deals, team, currency, displayFactor = 1, includ
     closed: "5%",
     probability: "5%",
     temperature: "5.5%",
-    repComment: includeClosed ? "20%" : "21%",
-    managerComment: includeClosed ? "17%" : "18.5%",
+    repComment: includeClosed ? "18%" : "19%",
+    managerComment: includeClosed ? "15.5%" : "17%",
     nextAction: includeClosed ? "9.5%" : "14.5%",
     actions: includeClosed ? "9%" : "11%"
   };
   const columns = [
+    { header: "Opened", width: forecastColumnWidths.opened, className: "break-words", render: (row) => <DealOpenedCell deal={row} /> },
     { header: "Company", width: forecastColumnWidths.company, className: "break-words", render: (row) => <DealHubSpotLink deal={row} /> },
     { header: "Product", width: forecastColumnWidths.product, className: "break-words", render: (row) => row.product },
     { header: "Rep", width: forecastColumnWidths.rep, className: "break-words", render: (row) => row.repName },
@@ -5002,6 +5067,17 @@ export default function App() {
   const scopedData = scopedDataForAccess(data, access);
   const availableTabs = isManager ? TABS : TABS.filter((tab) => !["Teams", "Monthly Goals"].includes(tab));
 
+  async function notifyTeamMembersIfManagerCommentChanged(existing, savedDeal) {
+    const before = String(existing.managerComment || "").trim();
+    const after = String(savedDeal.managerComment || "").trim();
+    if (!after || before === after) return;
+    try {
+      await api.notifyManagerComment(savedDeal, after);
+    } catch (error) {
+      console.warn("Manager comment notification write failed after the deal save succeeded.", error);
+    }
+  }
+
   async function updateDealFromTeamView(deal, patch) {
     const existing = data.deals.find((item) => item.id === deal.id);
     if (!existing) throw new Error("Deal was not found.");
@@ -5012,6 +5088,9 @@ export default function App() {
     const nextDeal = normalizeDeal({ ...existing, ...patch });
     const saved = await api.updateDeal(existing.id, nextDeal);
     const normalizedSaved = normalizeDeal({ ...nextDeal, ...saved });
+    if (Object.prototype.hasOwnProperty.call(patch, "managerComment")) {
+      await notifyTeamMembersIfManagerCommentChanged(existing, normalizedSaved);
+    }
     setData((current) => ({
       ...current,
       deals: current.deals.map((item) => (item.id === existing.id ? normalizedSaved : item)),
@@ -5030,6 +5109,9 @@ export default function App() {
     const nextDeal = normalizeDeal(merged);
     const saved = await api.updateDeal(existing.id, nextDeal);
     const normalizedSaved = normalizeDeal({ ...nextDeal, ...saved });
+    if (canEditManagerNotes) {
+      await notifyTeamMembersIfManagerCommentChanged(existing, normalizedSaved);
+    }
     setData((current) => ({
       ...current,
       deals: current.deals.map((item) => (item.id === existing.id ? normalizedSaved : item)),
@@ -5052,7 +5134,7 @@ export default function App() {
         selectedHalfYear={selectedHalfYear}
       />
     ),
-    Teams: <TeamsPage data={data} refreshData={refreshData} />,
+    Teams: <TeamsPage data={data} refreshData={refreshData} connectionStatus={sheetsConnection} />,
     Deals: <DealsPage data={scopedData} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} access={access} connectionStatus={sheetsConnection} />,
     "Monthly Goals": <GoalsPage data={data} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} />,
     "Team View": (
