@@ -3384,7 +3384,7 @@ function DealHubSpotLink({ deal }) {
   );
 }
 
-function ForecastTable({ title, deals, team, currency, displayFactor = 1, includeClosed = false, onSaveComment, canEditManagerNotes = false }) {
+function ForecastTable({ title, deals, team, currency, displayFactor = 1, includeClosed = false, onSaveComment, canEditManagerNotes = false, onEditDeal, onMoveDeal, canEditDeal }) {
   const openDeals = deals.filter((deal) => deal.status === "Open");
   const closedDeals = deals.filter((deal) => deal.status === "Closed");
   const totalMin = openDeals.reduce((sum, deal) => sum + num(deal.minAmount), 0);
@@ -3432,7 +3432,31 @@ function ForecastTable({ title, deals, team, currency, displayFactor = 1, includ
         />
       )
     },
-    { header: "Next Action", render: (row) => row.nextAction }
+    { header: "Next Action", render: (row) => row.nextAction },
+    ...(onEditDeal || onMoveDeal
+      ? [{
+          header: "Actions",
+          className: "whitespace-nowrap",
+          render: (row) => {
+            const allowed = canEditDeal ? canEditDeal(row) : true;
+            if (!allowed) return <span className="text-slate-400">-</span>;
+            return (
+              <div className="flex gap-2">
+                {onEditDeal ? (
+                  <button className="btn-secondary" onClick={() => onEditDeal(row)}>
+                    Edit
+                  </button>
+                ) : null}
+                {onMoveDeal && row.status === "Open" ? (
+                  <button className="btn-secondary" onClick={() => onMoveDeal(row)}>
+                    Move to next month
+                  </button>
+                ) : null}
+              </div>
+            );
+          }
+        }]
+      : [])
   ];
 
   return (
@@ -3463,6 +3487,8 @@ function TeamView({
   selectedQuarter,
   selectedHalfYear,
   onUpdateDeal,
+  onSaveDeal,
+  access,
   canEditManagerNotes = false,
   onUnlockManagerNotes,
   onLockManagerNotes
@@ -3568,6 +3594,43 @@ function TeamView({
     const result = onUnlockManagerNotes?.(managerPassword);
     if (result) {
       setManagerPassword("");
+    }
+  }
+
+  const [editingDeal, setEditingDeal] = useState(null);
+  const [savingDeal, setSavingDeal] = useState(false);
+  const [dealSaveError, setDealSaveError] = useState("");
+  const canEditDeal = (deal) => (access ? canUseRecord(access, deal) : true);
+
+  function openDealEditor(deal) {
+    setDealSaveError("");
+    setEditingDeal(deal);
+  }
+
+  async function handleSaveDeal(deal) {
+    if (!onSaveDeal) return;
+    setSavingDeal(true);
+    setDealSaveError("");
+    try {
+      await onSaveDeal(deal);
+      setEditingDeal(null);
+    } catch (error) {
+      setDealSaveError(error.message || "The deal could not be saved. Please retry.");
+    } finally {
+      setSavingDeal(false);
+    }
+  }
+
+  async function moveDealToNextMonth(deal) {
+    const dealMonth = num(deal.month) || 1;
+    const dealYear = num(deal.year) || year;
+    const nextMonth = dealMonth === 12 ? 1 : dealMonth + 1;
+    const nextYear = dealMonth === 12 ? dealYear + 1 : dealYear;
+    if (!window.confirm(`Move "${deal.companyName}" to ${monthName(nextMonth)} ${nextYear}?`)) return;
+    try {
+      await onUpdateDeal(deal, { month: nextMonth, year: nextYear });
+    } catch (error) {
+      alert(error.message || "The deal could not be moved.");
     }
   }
 
@@ -3725,6 +3788,9 @@ function TeamView({
           includeClosed={includeClosedDeals}
           onSaveComment={onUpdateDeal}
           canEditManagerNotes={canEditManagerNotes}
+          onEditDeal={onSaveDeal ? openDealEditor : undefined}
+          onMoveDeal={moveDealToNextMonth}
+          canEditDeal={canEditDeal}
           deals={tableDeals.filter((deal) => deal.category === category)}
         />
       ))}
@@ -3820,6 +3886,21 @@ function TeamView({
           </ResponsiveContainer>
         </ChartPanel>
       </div>
+      {editingDeal ? (
+        <Modal title="Edit Deal" onClose={() => { if (!savingDeal) setEditingDeal(null); }}>
+          <DealForm
+            teams={data.teams}
+            initialDeal={editingDeal}
+            selectedYear={year}
+            selectedMonth={month}
+            onSave={handleSaveDeal}
+            onCancel={() => setEditingDeal(null)}
+            rates={rates}
+            saving={savingDeal}
+            error={dealSaveError}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }
@@ -4839,6 +4920,24 @@ export default function App() {
     }));
   }
 
+  async function saveDealFromTeamView(deal) {
+    const existing = data.deals.find((item) => item.id === deal.id);
+    if (!existing) throw new Error("Deal was not found.");
+    if (!canUseRecord(access, existing)) throw new Error("You can only update deals for your assigned team/rep.");
+    // Editing the full deal is allowed, but the manager comment stays locked
+    // unless it was explicitly unlocked with the local password.
+    const merged = { ...existing, ...deal };
+    if (!canEditManagerNotes) merged.managerComment = existing.managerComment;
+    const nextDeal = normalizeDeal(merged);
+    const saved = await api.updateDeal(existing.id, nextDeal);
+    const normalizedSaved = normalizeDeal({ ...nextDeal, ...saved });
+    setData((current) => ({
+      ...current,
+      deals: current.deals.map((item) => (item.id === existing.id ? normalizedSaved : item)),
+      lastUpdated: new Date().toISOString()
+    }));
+  }
+
   useEffect(() => {
     if (!availableTabs.includes(activeTab)) setActiveTab(availableTabs[0] || "Dashboard");
   }, [activeTab, availableTabs.join("|")]);
@@ -4866,6 +4965,8 @@ export default function App() {
         selectedQuarter={selectedQuarter}
         selectedHalfYear={selectedHalfYear}
         onUpdateDeal={updateDealFromTeamView}
+        onSaveDeal={saveDealFromTeamView}
+        access={access}
         canEditManagerNotes={canEditManagerNotes}
         onUnlockManagerNotes={unlockManagerNotes}
         onLockManagerNotes={lockManagerNotes}
