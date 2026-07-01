@@ -993,7 +993,7 @@ export async function upsertRows(sheetName, incomingRows, keyFn, actionLabel) {
 
 export async function replaceSheetData(data) {
   await Promise.all([
-    writeSheet("Teams", (data.teams || []).map((team) => ({ ...team, repsJson: team.repsJson || JSON.stringify(team.reps || []) }))),
+    writeSheet("Teams", (data.teams || []).map((team) => ({ ...team, repsJson: JSON.stringify(team.reps || parseRepsJson(team.repsJson)) }))),
     writeSheet("Deals", data.deals || []),
     writeSheet("MonthlyGoals", data.goals || []),
     writeSheet("UserRoles", data.roles || data.userRoles || []),

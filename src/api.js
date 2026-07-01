@@ -53,9 +53,15 @@ function normalizeRoleValue(role) {
 }
 
 function teamToSheet(team) {
+  const reps = Array.isArray(team.reps)
+    ? team.reps
+    : String(team.reps || "")
+        .split(",")
+        .map((rep) => rep.trim())
+        .filter(Boolean);
   return {
     ...team,
-    repsJson: team.repsJson || JSON.stringify(Array.isArray(team.reps) ? team.reps : String(team.reps || "").split(",").map((rep) => rep.trim()).filter(Boolean))
+    repsJson: JSON.stringify(reps)
   };
 }
 
