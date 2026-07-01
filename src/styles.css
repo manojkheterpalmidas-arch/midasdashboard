@@ -337,6 +337,27 @@ textarea {
   color: var(--text);
 }
 
+.theme-root .field:focus,
+.theme-root select.field:focus,
+.theme-root input.field:focus,
+.theme-root textarea.field:focus {
+  border-color: var(--brand-blue) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-blue) 34%, transparent) !important;
+  outline: none !important;
+}
+
+.theme-dark .field:focus,
+.theme-dark select.field:focus,
+.theme-dark input.field:focus,
+.theme-dark textarea.field:focus,
+.theme-graphite .field:focus,
+.theme-graphite select.field:focus,
+.theme-graphite input.field:focus,
+.theme-graphite textarea.field:focus {
+  border-color: color-mix(in srgb, var(--brand-blue) 82%, white) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-blue) 38%, transparent) !important;
+}
+
 .theme-root .field::placeholder,
 .theme-root .comment-textarea::placeholder {
   color: var(--text-subtle);

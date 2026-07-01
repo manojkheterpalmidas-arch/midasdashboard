@@ -35,7 +35,19 @@ const YEARS = [2025, 2026, 2027, 2028];
 const CATEGORIES = ["MODS", "Non-MODS", "New Sales"];
 const DEAL_TYPES = ["Renewal", "Reactivation", "Upsell", "New Logo", "Cross-sell", "Other"];
 const TEMPERATURES = ["High", "Medium", "Low"];
-const STATUSES = ["Open", "Closed", "Lost", "Long-Term"];
+const DEAL_STAGES = [
+  "Prospecting",
+  "Qualified",
+  "Demo / Technical Discussion",
+  "Trial / Evaluation",
+  "Proposal Sent",
+  "Negotiation",
+  "Procurement",
+  "Verbal Confirmation",
+  "PO / Closed"
+];
+const LEGACY_STATUSES = ["Open", "Closed", "Lost", "Long-Term"];
+const STATUSES = [...LEGACY_STATUSES, ...DEAL_STAGES];
 const GOAL_TYPES = ["Responsibility Goal", "Challenge Goal"];
 const CURRENCIES = ["KRW", "GBP", "EUR", "USD"];
 const RATE_CURRENCIES = ["GBP", "EUR", "USD"];
@@ -719,8 +731,20 @@ function normalizeDeal(deal) {
   };
   next.comments = deal.comments ?? next.repComment;
   next.closedAmount =
-    next.status === "Closed" && deal.closedAmount === "" ? next.maxAmount : num(deal.closedAmount);
+    isClosedStatus(next.status) && deal.closedAmount === "" ? next.maxAmount : num(deal.closedAmount);
   return next;
+}
+
+function isClosedStatus(status) {
+  return status === "Closed" || status === "PO / Closed";
+}
+
+function isForecastOpenStatus(status) {
+  return status === "Open" || (DEAL_STAGES.includes(status) && !isClosedStatus(status));
+}
+
+function statusOptions(currentStatus = "") {
+  return currentStatus && !STATUSES.includes(currentStatus) ? [currentStatus, ...STATUSES] : STATUSES;
 }
 
 function normalizeGoal(goal) {
@@ -844,21 +868,21 @@ function calculateMetrics({ teams, deals, goals, scope, goalType, useKrw = true 
     }, 0);
 
   const closed = deals
-    .filter((deal) => deal.status === "Closed" && matchesScope(deal, scope))
+    .filter((deal) => isClosedStatus(deal.status) && matchesScope(deal, scope))
     .reduce((sum, deal) => {
       const team = getTeam(teams, deal.teamId);
       return sum + amountForView(dealClosedAmount(deal), team, useKrw);
     }, 0);
 
   const min = deals
-    .filter((deal) => deal.status === "Open" && matchesScope(deal, scope))
+    .filter((deal) => isForecastOpenStatus(deal.status) && matchesScope(deal, scope))
     .reduce((sum, deal) => {
       const team = getTeam(teams, deal.teamId);
       return sum + amountForView(deal.minAmount, team, useKrw);
     }, 0);
 
   const max = deals
-    .filter((deal) => deal.status === "Open" && matchesScope(deal, scope))
+    .filter((deal) => isForecastOpenStatus(deal.status) && matchesScope(deal, scope))
     .reduce((sum, deal) => {
       const team = getTeam(teams, deal.teamId);
       return sum + amountForView(deal.maxAmount, team, useKrw);
@@ -916,9 +940,11 @@ function temperatureTone(value) {
 }
 
 function statusTone(value) {
-  if (value === "Closed") return "green";
+  if (isClosedStatus(value)) return "green";
   if (value === "Open") return "blue";
   if (value === "Long-Term") return "purple";
+  if (value === "Lost") return "red";
+  if (value === "Negotiation" || value === "Procurement" || value === "Verbal Confirmation") return "amber";
   return "grey";
 }
 
@@ -1691,9 +1717,9 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
           </select>
         </div>
         <div>
-          <label className="label">Status</label>
+          <label className="label">Deal stage</label>
           <select className="field" value={form.status} onChange={(e) => update("status", e.target.value)}>
-            {STATUSES.map((status) => (
+            {statusOptions(form.status).map((status) => (
               <option key={status}>{status}</option>
             ))}
           </select>
@@ -1836,12 +1862,12 @@ function BulkDealForm({ teams, selectedYear, selectedMonth, onSave, onCancel, sa
           product: row.product.trim() || defaultProduct.trim() || "Bulk deal",
           category,
           dealType,
-          minAmount: status === "Closed" ? 0 : localAmount,
+          minAmount: isClosedStatus(status) ? 0 : localAmount,
           maxAmount: localMax,
-          probability: status === "Closed" ? 100 : num(probability),
+          probability: isClosedStatus(status) ? 100 : num(probability),
           temperature,
           status,
-          closedAmount: status === "Closed" ? localMax : 0,
+          closedAmount: isClosedStatus(status) ? localMax : 0,
           expectedCloseDate: "",
           comments: row.comments,
           repComment: row.comments,
@@ -1915,11 +1941,11 @@ function BulkDealForm({ teams, selectedYear, selectedMonth, onSave, onCancel, sa
           </select>
         </div>
         <div>
-          <label className="label">Status</label>
+          <label className="label">Deal stage</label>
           <select className="field" value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option>Open</option>
-            <option>Closed</option>
-            <option>Long-Term</option>
+            {statusOptions(status).map((item) => (
+              <option key={item}>{item}</option>
+            ))}
           </select>
         </div>
         <div>
@@ -2932,7 +2958,7 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access, con
             </select>
           </div>
           <div>
-            <label className="label">Status</label>
+            <label className="label">Deal stage</label>
             <select className="field" value={filters.status} onChange={(e) => updateFilter("status", e.target.value)}>
               <option>All</option>
               {STATUSES.map((status) => (
@@ -2967,7 +2993,7 @@ function DealsPage({ data, refreshData, selectedYear, selectedMonth, access, con
             { header: "Max KRW", render: (row) => formatMoney(toKrw(row.maxAmount, getTeam(data.teams, row.teamId)), "KRW") },
             { header: "Probability", render: (row) => `${row.probability}%` },
             { header: "Temperature", render: (row) => <Badge tone={temperatureTone(row.temperature)}>{row.temperature}</Badge> },
-            { header: "Status", render: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge> },
+            { header: "Deal Stage", render: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge> },
             { header: "Closed Amount", render: (row) => formatMoney(dealClosedAmount(row), getTeam(data.teams, row.teamId)?.currency) },
             { header: "Closed KRW", render: (row) => formatMoney(toKrw(dealClosedAmount(row), getTeam(data.teams, row.teamId)), "KRW") },
             { header: "Expected Close", render: (row) => row.expectedCloseDate || "-" },
@@ -3424,8 +3450,8 @@ function DealHubSpotLink({ deal }) {
 }
 
 function ForecastTable({ title, deals, team, currency, displayFactor = 1, includeClosed = false, onSaveComment, canEditManagerNotes = false, onEditDeal, onMoveDeal, canEditDeal }) {
-  const openDeals = deals.filter((deal) => deal.status === "Open");
-  const closedDeals = deals.filter((deal) => deal.status === "Closed");
+  const openDeals = deals.filter((deal) => isForecastOpenStatus(deal.status));
+  const closedDeals = deals.filter((deal) => isClosedStatus(deal.status));
   const totalMin = openDeals.reduce((sum, deal) => sum + num(deal.minAmount), 0);
   const totalMax = openDeals.reduce((sum, deal) => sum + num(deal.maxAmount), 0);
   const totalClosed = closedDeals.reduce((sum, deal) => sum + dealClosedAmount(deal), 0);
@@ -3455,12 +3481,12 @@ function ForecastTable({ title, deals, team, currency, displayFactor = 1, includ
     { header: "Product", width: forecastColumnWidths.product, className: "break-words", render: (row) => row.product },
     { header: "Rep", width: forecastColumnWidths.rep, className: "break-words", render: (row) => row.repName },
     ...(includeClosed
-      ? [{ header: "Status", width: forecastColumnWidths.status, render: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge> }]
+      ? [{ header: "Stage", width: forecastColumnWidths.status, render: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge> }]
       : []),
-    { header: `Min (${currency})`, width: forecastColumnWidths.min, render: (row) => (row.status === "Open" ? formatMoney(displayAmount(row.minAmount), currency) : "-") },
-    { header: `Max (${currency})`, width: forecastColumnWidths.max, render: (row) => (row.status === "Open" ? formatMoney(displayAmount(row.maxAmount), currency) : "-") },
+    { header: `Min (${currency})`, width: forecastColumnWidths.min, render: (row) => (isForecastOpenStatus(row.status) ? formatMoney(displayAmount(row.minAmount), currency) : "-") },
+    { header: `Max (${currency})`, width: forecastColumnWidths.max, render: (row) => (isForecastOpenStatus(row.status) ? formatMoney(displayAmount(row.maxAmount), currency) : "-") },
     ...(includeClosed
-      ? [{ header: `Closed (${currency})`, width: forecastColumnWidths.closed, render: (row) => (row.status === "Closed" ? formatMoney(displayAmount(dealClosedAmount(row)), currency) : "-") }]
+      ? [{ header: `Closed (${currency})`, width: forecastColumnWidths.closed, render: (row) => (isClosedStatus(row.status) ? formatMoney(displayAmount(dealClosedAmount(row)), currency) : "-") }]
       : []),
     { header: "Probability", width: forecastColumnWidths.probability, render: (row) => `${row.probability}%` },
     { header: "Temperature", width: forecastColumnWidths.temperature, render: (row) => <Badge tone={temperatureTone(row.temperature)}>{row.temperature}</Badge> },
@@ -3506,7 +3532,7 @@ function ForecastTable({ title, deals, team, currency, displayFactor = 1, includ
                     Edit
                   </button>
                 ) : null}
-                {onMoveDeal && row.status === "Open" ? (
+                {onMoveDeal && isForecastOpenStatus(row.status) ? (
                   <button className="btn-secondary" onClick={() => onMoveDeal(row)}>
                     Move to next month
                   </button>
@@ -3581,8 +3607,8 @@ function TeamView({
   const includeOpenDeals = dealTableView !== "Closed only";
   const tableDeals = data.deals.filter((deal) => {
     if (!matchesScope(deal, scope)) return false;
-    if (deal.status === "Open") return includeOpenDeals;
-    if (deal.status === "Closed") return includeClosedDeals;
+    if (isForecastOpenStatus(deal.status)) return includeOpenDeals;
+    if (isClosedStatus(deal.status)) return includeClosedDeals;
     return false;
   });
 

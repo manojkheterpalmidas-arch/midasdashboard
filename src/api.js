@@ -27,9 +27,23 @@ import { createId } from "./utils/ids.js";
 import { monthToNumber, toNumber } from "./utils/calculations.js";
 
 const CATEGORIES = ["MODS", "Non-MODS", "New Sales"];
-const STATUSES = ["Open", "Closed", "Lost", "Long-Term"];
+const DEAL_STAGES = [
+  "Prospecting",
+  "Qualified",
+  "Demo / Technical Discussion",
+  "Trial / Evaluation",
+  "Proposal Sent",
+  "Negotiation",
+  "Procurement",
+  "Verbal Confirmation",
+  "PO / Closed"
+];
+const STATUSES = ["Open", "Closed", "Lost", "Long-Term", ...DEAL_STAGES];
 const TEMPERATURES = ["High", "Medium", "Low"];
 const GOAL_TYPES = ["Responsibility Goal", "Challenge Goal"];
+function isClosedStatus(status) {
+  return status === "Closed" || status === "PO / Closed";
+}
 function normalizeRoleValue(role) {
   const normalized = String(role || "").trim().toLowerCase();
   if (normalized === "team lead") return "Team Lead";
@@ -57,7 +71,7 @@ function cleanDeal(deal) {
     maxAmount,
     probability: toNumber(deal.probability),
     hubspotDealUrl: String(deal.hubspotDealUrl || "").trim(),
-    closedAmount: status === "Closed" ? toNumber(deal.closedAmount || maxAmount) : 0,
+    closedAmount: isClosedStatus(status) ? toNumber(deal.closedAmount || maxAmount) : 0,
     comments: deal.comments ?? repComment,
     repComment,
     managerComment: deal.managerComment ?? ""
@@ -187,7 +201,7 @@ async function previewDeals(file) {
     if (!month) errors.push("month must be 1-12 or a valid month name.");
     if (!team) errors.push(`teamName '${teamName}' does not match an existing team.`);
     if (!CATEGORIES.includes(row.category)) errors.push("category must be MODS, Non-MODS, or New Sales.");
-    if (!STATUSES.includes(row.status)) errors.push("status must be Open, Closed, Lost, or Long-Term.");
+    if (!STATUSES.includes(row.status)) errors.push(`status must be one of: ${STATUSES.join(", ")}.`);
     if (!TEMPERATURES.includes(row.temperature)) errors.push("temperature must be High, Medium, or Low.");
     if (!Number.isFinite(Number(row.minAmount))) errors.push("minAmount must be a number.");
     if (!Number.isFinite(Number(row.maxAmount))) errors.push("maxAmount must be a number.");
