@@ -3970,24 +3970,24 @@ function IndividualPerformancePage({ data }) {
   );
 }
 
-function TeamPerformancePage({ data }) {
+function TeamPerformancePage({ data, selectedYear, selectedHalfYear }) {
   const [goalType, setGoalType] = useStoredState("midas-team-performance-goal-type", "Responsibility Goal");
   const includedTeams = data.teams.filter(isPerformanceTeam);
   const [currencyView, setCurrencyView] = useStoredState("midas-team-performance-currency-view", "EUR");
   const rates = ratesFromSettings(data.settings, data.teams);
   const displayCurrency = currencyView;
   const today = new Date();
-  const currentYear = today.getFullYear();
-  const currentHalfYear = today.getMonth() < 6 ? 1 : 2;
+  const year = selectedYear ?? today.getFullYear();
+  const halfYear = selectedHalfYear ?? (today.getMonth() < 6 ? 1 : 2);
   const label = periodLabel({
-    year: currentYear,
+    year,
     periodType: "Half-Yearly",
-    halfYear: currentHalfYear
+    halfYear
   });
   const baseScope = periodScope({
-    year: currentYear,
+    year,
     periodType: "Half-Yearly",
-    halfYear: currentHalfYear
+    halfYear
   });
 
   const rows = includedTeams
@@ -4871,7 +4871,7 @@ export default function App() {
         onLockManagerNotes={lockManagerNotes}
       />
     ),
-    "Team Performance": <TeamPerformancePage data={scopedData} />,
+    "Team Performance": <TeamPerformancePage data={scopedData} selectedYear={selectedYear} selectedHalfYear={selectedHalfYear} />,
     "Individual Performance": (
       <IndividualPerformancePage data={scopedData} />
     ),
