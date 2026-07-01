@@ -10,6 +10,22 @@
     sans-serif;
 }
 
+html[data-theme="dark"] {
+  background: #0d1117;
+}
+
+html[data-theme="forest"] {
+  background: #eef7f1;
+}
+
+html[data-theme="sunrise"] {
+  background: #fff7ed;
+}
+
+html[data-theme="graphite"] {
+  background: #111318;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -82,4 +98,254 @@ textarea {
   .comment-meta {
     @apply mt-2 flex min-h-4 items-center justify-end text-[11px] font-bold uppercase tracking-wide text-slate-400;
   }
+}
+
+.theme-root {
+  --app-bg: #eef2f7;
+  --panel-bg: #ffffff;
+  --panel-muted: #f8fafc;
+  --text: #172033;
+  --text-muted: #64748b;
+  --text-subtle: #94a3b8;
+  --border: #d8dee8;
+  --brand-navy: #0f2742;
+  --brand-blue: #1d4f8f;
+  --brand-green: #16825d;
+  --brand-amber: #d18b16;
+  --brand-red: #c24136;
+  --soft-shadow: 0 12px 30px rgba(15, 39, 66, 0.08);
+  --alert-blue-bg: #eff6ff;
+  --alert-green-bg: #ecfdf5;
+  --alert-amber-bg: #fffbeb;
+  --alert-red-bg: #fef2f2;
+  background: var(--app-bg);
+  color: var(--text);
+}
+
+.theme-dark {
+  --app-bg: #0d1117;
+  --panel-bg: #171b24;
+  --panel-muted: #111827;
+  --text: #eef2f7;
+  --text-muted: #aeb8c8;
+  --text-subtle: #7b8798;
+  --border: #2d3748;
+  --brand-navy: #2563eb;
+  --brand-blue: #60a5fa;
+  --brand-green: #34d399;
+  --brand-amber: #fbbf24;
+  --brand-red: #f87171;
+  --soft-shadow: 0 18px 40px rgba(0, 0, 0, 0.32);
+  --alert-blue-bg: rgba(37, 99, 235, 0.18);
+  --alert-green-bg: rgba(22, 163, 74, 0.18);
+  --alert-amber-bg: rgba(217, 119, 6, 0.2);
+  --alert-red-bg: rgba(220, 38, 38, 0.2);
+}
+
+.theme-forest {
+  --app-bg: #eef7f1;
+  --panel-bg: #fbfefc;
+  --panel-muted: #e5f3ea;
+  --text: #13291f;
+  --text-muted: #557064;
+  --text-subtle: #7f998c;
+  --border: #c7decf;
+  --brand-navy: #14532d;
+  --brand-blue: #256d85;
+  --brand-green: #16825d;
+  --brand-amber: #ad7817;
+  --brand-red: #b03a2e;
+  --soft-shadow: 0 14px 32px rgba(20, 83, 45, 0.1);
+  --alert-blue-bg: #e8f4f7;
+  --alert-green-bg: #dcfce7;
+  --alert-amber-bg: #fef3c7;
+  --alert-red-bg: #fee2e2;
+}
+
+.theme-sunrise {
+  --app-bg: #fff7ed;
+  --panel-bg: #fffdfa;
+  --panel-muted: #ffedd5;
+  --text: #2f2418;
+  --text-muted: #806653;
+  --text-subtle: #a08a76;
+  --border: #f3d4b7;
+  --brand-navy: #7c2d12;
+  --brand-blue: #b45309;
+  --brand-green: #15803d;
+  --brand-amber: #d97706;
+  --brand-red: #b91c1c;
+  --soft-shadow: 0 14px 34px rgba(124, 45, 18, 0.11);
+  --alert-blue-bg: #fef3c7;
+  --alert-green-bg: #ecfdf5;
+  --alert-amber-bg: #ffedd5;
+  --alert-red-bg: #fee2e2;
+}
+
+.theme-graphite {
+  --app-bg: #111318;
+  --panel-bg: #1b1f27;
+  --panel-muted: #151922;
+  --text: #f3f4f6;
+  --text-muted: #b4bdca;
+  --text-subtle: #828c9d;
+  --border: #343b49;
+  --brand-navy: #6d5bd0;
+  --brand-blue: #38bdf8;
+  --brand-green: #22c55e;
+  --brand-amber: #f59e0b;
+  --brand-red: #ef4444;
+  --soft-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  --alert-blue-bg: rgba(14, 165, 233, 0.17);
+  --alert-green-bg: rgba(34, 197, 94, 0.16);
+  --alert-amber-bg: rgba(245, 158, 11, 0.2);
+  --alert-red-bg: rgba(239, 68, 68, 0.2);
+}
+
+.theme-root .bg-slate-100,
+.theme-root .bg-midas-panel {
+  background-color: var(--app-bg) !important;
+}
+
+.theme-root .bg-white {
+  background-color: var(--panel-bg) !important;
+}
+
+.theme-root .bg-slate-50,
+.theme-root .comment-cell {
+  background-color: var(--panel-muted) !important;
+}
+
+.theme-root .hover\:bg-slate-50:hover,
+.theme-root .hover\:bg-slate-100:hover,
+.theme-root .hover\:bg-slate-200:hover {
+  background-color: color-mix(in srgb, var(--panel-muted) 82%, var(--brand-blue)) !important;
+}
+
+.theme-root .text-midas-ink,
+.theme-root .comment-textarea {
+  color: var(--text) !important;
+}
+
+.theme-root .text-slate-400,
+.theme-root .text-slate-500,
+.theme-root .text-slate-600,
+.theme-root .text-slate-700 {
+  color: var(--text-muted) !important;
+}
+
+.theme-root .border-midas-line,
+.theme-root .border-slate-100,
+.theme-root .border-slate-200 {
+  border-color: var(--border) !important;
+}
+
+.theme-root .bg-midas-navy {
+  background-color: var(--brand-navy) !important;
+}
+
+.theme-root .bg-midas-blue {
+  background-color: var(--brand-blue) !important;
+}
+
+.theme-root .hover\:bg-midas-blue:hover {
+  background-color: var(--brand-blue) !important;
+}
+
+.theme-root .bg-midas-red {
+  background-color: var(--brand-red) !important;
+}
+
+.theme-root .text-midas-blue {
+  color: var(--brand-blue) !important;
+}
+
+.theme-root .border-l-midas-navy {
+  border-left-color: var(--brand-navy) !important;
+}
+
+.theme-root .border-l-midas-blue {
+  border-left-color: var(--brand-blue) !important;
+}
+
+.theme-root .border-l-midas-green {
+  border-left-color: var(--brand-green) !important;
+}
+
+.theme-root .border-l-midas-amber {
+  border-left-color: var(--brand-amber) !important;
+}
+
+.theme-root .border-l-midas-red {
+  border-left-color: var(--brand-red) !important;
+}
+
+.theme-root .panel {
+  background-color: var(--panel-bg);
+  border-color: var(--border);
+  box-shadow: var(--soft-shadow);
+}
+
+.theme-root .field {
+  background-color: var(--panel-bg);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.theme-root .field::placeholder,
+.theme-root .comment-textarea::placeholder {
+  color: var(--text-subtle);
+}
+
+.theme-root option {
+  background-color: var(--panel-bg);
+  color: var(--text);
+}
+
+.theme-root .table-head {
+  background-color: var(--panel-muted);
+  color: var(--text-muted);
+}
+
+.theme-root .table-cell {
+  border-color: color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.theme-root .shadow-soft {
+  box-shadow: var(--soft-shadow) !important;
+}
+
+.theme-root .bg-blue-50 {
+  background-color: var(--alert-blue-bg) !important;
+}
+
+.theme-root .bg-green-50,
+.theme-root .bg-green-100 {
+  background-color: var(--alert-green-bg) !important;
+}
+
+.theme-root .bg-amber-50,
+.theme-root .bg-amber-100 {
+  background-color: var(--alert-amber-bg) !important;
+}
+
+.theme-root .bg-red-50,
+.theme-root .bg-red-100 {
+  background-color: var(--alert-red-bg) !important;
+}
+
+.theme-root .recharts-cartesian-grid line {
+  stroke: var(--border);
+}
+
+.theme-root .recharts-text,
+.theme-root .recharts-legend-item-text {
+  fill: var(--text-muted);
+  color: var(--text-muted) !important;
+}
+
+.theme-root .recharts-default-tooltip {
+  background-color: var(--panel-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
 }

@@ -45,6 +45,13 @@ const MANAGER_COMMENT_UNLOCK_CODE = import.meta.env.VITE_MANAGER_COMMENT_UNLOCK_
 const MANAGER_COMMENT_UNLOCK_KEY = "midas-manager-comment-unlocked";
 const DEAL_DRAFT_KEY = "midas-unsaved-deal-draft";
 const CHART_COLORS = ["#16825d", "#1d4f8f", "#d18b16", "#c24136", "#6d5bd0"];
+const THEMES = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "forest", label: "Forest" },
+  { value: "sunrise", label: "Sunrise" },
+  { value: "graphite", label: "Graphite" }
+];
 const RADIAN = Math.PI / 180;
 const TABS = ["Dashboard", "Teams", "Deals", "Monthly Goals", "Team View", "Team Performance", "Individual Performance", "Summary"];
 const PERIOD_TYPES = ["Monthly", "Quarterly", "Half-Yearly"];
@@ -953,7 +960,9 @@ function Header({
   access,
   availableTabs = TABS,
   rates = DEFAULT_KRW_RATES,
-  onSaveRates
+  onSaveRates,
+  theme,
+  setTheme
 }) {
   const teamsCsvRef = useRef(null);
   const dealsCsvRef = useRef(null);
@@ -990,6 +999,16 @@ function Header({
               Signed in as {access?.role || "Team Member"}
             </div>
           )}
+          <div className="mt-3 w-full sm:w-72">
+            <label className="label">Theme</label>
+            <select className="field py-1.5" value={theme} onChange={(event) => setTheme(event.target.value)}>
+              {THEMES.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="panel p-4">
@@ -4580,6 +4599,7 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
 export default function App() {
   const [data, setData] = useState(emptyData);
   const [activeTab, setActiveTab] = useState("Dashboard");
+  const [theme, setTheme] = useStoredState("midas-theme", "light");
   const [selectedYear, setSelectedYear] = useState(2026);
   const [selectedMonth, setSelectedMonth] = useState(6);
   const [selectedPeriodType, setSelectedPeriodType] = useState("Monthly");
@@ -4604,6 +4624,12 @@ export default function App() {
   const [managerCommentUnlocked, setManagerCommentUnlocked] = useState(
     () => sessionStorage.getItem(MANAGER_COMMENT_UNLOCK_KEY) === "true"
   );
+  const activeTheme = THEMES.some((item) => item.value === theme) ? theme : "light";
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = activeTheme;
+    document.documentElement.style.colorScheme = activeTheme === "light" || activeTheme === "sunrise" || activeTheme === "forest" ? "light" : "dark";
+  }, [activeTheme]);
 
   useEffect(() => {
     function handleConnectionChange(event) {
@@ -4996,16 +5022,20 @@ export default function App() {
   };
 
   if (!authChecked) {
-    return <div className="flex min-h-screen items-center justify-center bg-slate-100 text-sm font-bold text-slate-600">Loading MIDAS Sales Forecast...</div>;
+    return <div className={`theme-root theme-${activeTheme} flex min-h-screen items-center justify-center bg-slate-100 text-sm font-bold text-slate-600`}>Loading MIDAS Sales Forecast...</div>;
   }
 
   if (!authenticated) {
-    return <PasswordGate onLogin={refreshData} externalError={appError} />;
+    return (
+      <div className={`theme-root theme-${activeTheme}`}>
+        <PasswordGate onLogin={refreshData} externalError={appError} />
+      </div>
+    );
   }
 
   if (!dataLoaded) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
+      <div className={`theme-root theme-${activeTheme} flex min-h-screen items-center justify-center bg-slate-100 p-4`}>
         <div className="panel max-w-lg p-5 text-sm font-bold text-slate-600">
           {appError ? <div className="mb-3 rounded-md bg-red-50 px-4 py-3 text-red-700">{appError}</div> : null}
           Loading data from Google Sheets...
@@ -5015,7 +5045,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className={`theme-root theme-${activeTheme} min-h-screen bg-slate-100`}>
       <div className="min-w-0">
         <Header
           activeTab={activeTab}
@@ -5050,6 +5080,8 @@ export default function App() {
           availableTabs={availableTabs}
           rates={ratesFromSettings(data.settings, data.teams)}
           onSaveRates={saveRates}
+          theme={activeTheme}
+          setTheme={setTheme}
         />
         {appError ? <div className="mx-4 mt-4 rounded-md bg-red-50 px-4 py-3 text-sm font-bold text-red-700 lg:mx-6">{appError}</div> : null}
         <main className="p-4 lg:p-6">{content[activeTab]}</main>
