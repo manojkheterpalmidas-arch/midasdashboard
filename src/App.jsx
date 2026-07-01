@@ -3518,11 +3518,13 @@ function TeamView({
     calculateMetrics({ teams: data.teams, deals: data.deals, goals: data.goals, goalType, useKrw: false, scope }),
     displayFactor
   );
-  const includeClosedDeals = dealTableView === "Open + Closed";
+  const includeClosedDeals = dealTableView === "Open + Closed" || dealTableView === "Closed only";
+  const includeOpenDeals = dealTableView !== "Closed only";
   const tableDeals = data.deals.filter((deal) => {
     if (!matchesScope(deal, scope)) return false;
-    if (deal.status === "Open") return true;
-    return includeClosedDeals && deal.status === "Closed";
+    if (deal.status === "Open") return includeOpenDeals;
+    if (deal.status === "Closed") return includeClosedDeals;
+    return false;
   });
 
   const categoryRows = CATEGORIES.map((category) => {
@@ -3762,6 +3764,7 @@ function TeamView({
             <select className="field" value={dealTableView} onChange={(e) => setDealTableView(e.target.value)}>
               <option>Open only</option>
               <option>Open + Closed</option>
+              <option>Closed only</option>
             </select>
           </div>
         </div>
