@@ -1229,9 +1229,17 @@ function KpiCard({ label, value, helper, helperTone = "muted", tone = "navy" }) 
 }
 
 function DataTable({ columns, rows, empty = "No records found." }) {
+  const hasColumnWidths = columns.some((column) => column.width);
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full border-separate border-spacing-0">
+      <table className={`border-separate border-spacing-0 ${hasColumnWidths ? "min-w-[1500px] table-fixed" : "min-w-full"}`}>
+        {hasColumnWidths ? (
+          <colgroup>
+            {columns.map((column) => (
+              <col key={column.header} style={{ width: column.width }} />
+            ))}
+          </colgroup>
+        ) : null}
         <thead>
           <tr className="table-head">
             {columns.map((column) => (
@@ -3427,32 +3435,47 @@ function ForecastTable({ title, deals, team, currency, displayFactor = 1, includ
   const totalMinDisplay = displayAmount(totalMin);
   const totalMaxDisplay = displayAmount(totalMax);
   const totalClosedDisplay = displayAmount(totalClosed);
+  const forecastColumnWidths = {
+    company: "6%",
+    product: "4.5%",
+    rep: "4.5%",
+    status: "5%",
+    min: "4.5%",
+    max: "4.5%",
+    closed: "5%",
+    probability: "5%",
+    temperature: "5.5%",
+    repComment: includeClosed ? "20%" : "21%",
+    managerComment: includeClosed ? "17%" : "18.5%",
+    nextAction: includeClosed ? "9.5%" : "14.5%",
+    actions: includeClosed ? "9%" : "11%"
+  };
   const columns = [
-    { header: "Company", render: (row) => <DealHubSpotLink deal={row} /> },
-    { header: "Product", render: (row) => row.product },
-    { header: "Rep", render: (row) => row.repName },
+    { header: "Company", width: forecastColumnWidths.company, className: "break-words", render: (row) => <DealHubSpotLink deal={row} /> },
+    { header: "Product", width: forecastColumnWidths.product, className: "break-words", render: (row) => row.product },
+    { header: "Rep", width: forecastColumnWidths.rep, className: "break-words", render: (row) => row.repName },
     ...(includeClosed
-      ? [{ header: "Status", render: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge> }]
+      ? [{ header: "Status", width: forecastColumnWidths.status, render: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge> }]
       : []),
-    { header: `Min (${currency})`, render: (row) => (row.status === "Open" ? formatMoney(displayAmount(row.minAmount), currency) : "-") },
-    { header: `Max (${currency})`, render: (row) => (row.status === "Open" ? formatMoney(displayAmount(row.maxAmount), currency) : "-") },
+    { header: `Min (${currency})`, width: forecastColumnWidths.min, render: (row) => (row.status === "Open" ? formatMoney(displayAmount(row.minAmount), currency) : "-") },
+    { header: `Max (${currency})`, width: forecastColumnWidths.max, render: (row) => (row.status === "Open" ? formatMoney(displayAmount(row.maxAmount), currency) : "-") },
     ...(includeClosed
-      ? [{ header: `Closed (${currency})`, render: (row) => (row.status === "Closed" ? formatMoney(displayAmount(dealClosedAmount(row)), currency) : "-") }]
+      ? [{ header: `Closed (${currency})`, width: forecastColumnWidths.closed, render: (row) => (row.status === "Closed" ? formatMoney(displayAmount(dealClosedAmount(row)), currency) : "-") }]
       : []),
-    { header: "Probability", render: (row) => `${row.probability}%` },
-    { header: "Temperature", render: (row) => <Badge tone={temperatureTone(row.temperature)}>{row.temperature}</Badge> },
+    { header: "Probability", width: forecastColumnWidths.probability, render: (row) => `${row.probability}%` },
+    { header: "Temperature", width: forecastColumnWidths.temperature, render: (row) => <Badge tone={temperatureTone(row.temperature)}>{row.temperature}</Badge> },
     {
       header: "Rep Comment",
-      className: "min-w-[26rem]",
+      width: forecastColumnWidths.repComment,
       render: (row) => (
-        <div className="max-w-xl whitespace-pre-wrap text-sm leading-6 text-midas-ink">
+        <div className="whitespace-pre-wrap break-words text-sm leading-6 text-midas-ink">
           {row.repComment || row.comments || "-"}
         </div>
       )
     },
     {
       header: "Manager Comment",
-      className: "min-w-[24rem]",
+      width: forecastColumnWidths.managerComment,
       render: (row) => (
         <InlineDealComment
           deal={row}
@@ -3463,10 +3486,15 @@ function ForecastTable({ title, deals, team, currency, displayFactor = 1, includ
         />
       )
     },
-    { header: "Next Action", render: (row) => row.nextAction },
+    {
+      header: "Next Action",
+      width: forecastColumnWidths.nextAction,
+      render: (row) => <div className="whitespace-pre-wrap break-words text-sm leading-5">{row.nextAction || "-"}</div>
+    },
     ...(onEditDeal || onMoveDeal
       ? [{
           header: "Actions",
+          width: forecastColumnWidths.actions,
           className: "whitespace-nowrap",
           render: (row) => {
             const allowed = canEditDeal ? canEditDeal(row) : true;
