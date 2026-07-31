@@ -1566,7 +1566,9 @@ function DealForm({ teams, initialDeal, selectedYear, selectedMonth, onSave, onC
       managerComment: "",
       nextAction: ""
     };
-    if (initialDeal) return initialDeal;
+    // Team View can open this form with contextual defaults (team, rep, period,
+    // and category) even though the deal has not been created yet.
+    if (initialDeal) return { ...blankDeal, ...initialDeal };
     try {
       const draft = JSON.parse(sessionStorage.getItem(DEAL_DRAFT_KEY) || "null");
       return draft && typeof draft === "object" ? { ...blankDeal, ...draft } : blankDeal;
@@ -3512,7 +3514,7 @@ function DealHubSpotLink({ deal }) {
   );
 }
 
-function ForecastTable({ title, deals, team, currency, displayFactor = 1, includeClosed = false, onSaveComment, canEditManagerNotes = false, onEditDeal, onMoveDeal, canEditDeal }) {
+function ForecastTable({ title, deals, team, currency, displayFactor = 1, includeClosed = false, onSaveComment, canEditManagerNotes = false, onEditDeal, onMoveDeal, onAddDeal, canEditDeal }) {
   const openDeals = deals.filter((deal) => isForecastOpenStatus(deal.status));
   const closedDeals = deals.filter((deal) => isClosedStatus(deal.status));
   const totalMin = openDeals.reduce((sum, deal) => sum + num(deal.minAmount), 0);
@@ -3611,8 +3613,13 @@ function ForecastTable({ title, deals, team, currency, displayFactor = 1, includ
 
   return (
     <div className="panel">
-      <div className="border-b border-midas-line px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-midas-line px-4 py-3">
         <h3 className="font-bold text-midas-ink">{title}</h3>
+        {onAddDeal ? (
+          <button type="button" className="btn-primary" onClick={onAddDeal}>
+            Add Deal
+          </button>
+        ) : null}
       </div>
       <DataTable
         rows={deals}
@@ -3757,6 +3764,22 @@ function TeamView({
   function openDealEditor(deal) {
     setDealSaveError("");
     setEditingDeal(deal);
+  }
+
+  function openNewDeal(category) {
+    const currentMonth = new Date().getMonth() + 1;
+    const scopedMonth =
+      num(year) === new Date().getFullYear() && scope.months.includes(currentMonth)
+        ? currentMonth
+        : scope.months[0];
+    setDealSaveError("");
+    setEditingDeal({
+      teamId: team?.id || "",
+      repName: repName !== "All reps" ? repName : team?.reps?.[0] || "",
+      year: num(year),
+      month: periodType === "Monthly" ? num(month) : scopedMonth,
+      category
+    });
   }
 
   async function handleSaveDeal(deal) {
@@ -3943,6 +3966,7 @@ function TeamView({
           canEditManagerNotes={canEditManagerNotes}
           onEditDeal={onSaveDeal ? openDealEditor : undefined}
           onMoveDeal={moveDealToNextMonth}
+          onAddDeal={onSaveDeal ? () => openNewDeal(category) : undefined}
           canEditDeal={canEditDeal}
           deals={tableDeals.filter((deal) => deal.category === category)}
         />
@@ -4040,7 +4064,7 @@ function TeamView({
         </ChartPanel>
       </div>
       {editingDeal ? (
-        <Modal title="Edit Deal" onClose={() => { if (!savingDeal) setEditingDeal(null); }}>
+        <Modal title={editingDeal.id ? "Edit Deal" : `Add ${editingDeal.category} Deal`} onClose={() => { if (!savingDeal) setEditingDeal(null); }}>
           <DealForm
             teams={data.teams}
             initialDeal={editingDeal}
@@ -5100,7 +5124,19 @@ export default function App() {
 
   async function saveDealFromTeamView(deal) {
     const existing = data.deals.find((item) => item.id === deal.id);
-    if (!existing) throw new Error("Deal was not found.");
+    if (!existing) {
+      if (!canUseRecord(access, deal)) throw new Error("You can only add deals for your assigned team/rep.");
+      const newDeal = normalizeDeal({ ...deal, id: deal.id || createId("deal") });
+      if (!canEditManagerNotes) newDeal.managerComment = "";
+      const saved = await api.createDeal(newDeal);
+      const normalizedSaved = normalizeDeal({ ...newDeal, ...saved });
+      setData((current) => ({
+        ...current,
+        deals: [...current.deals, normalizedSaved],
+        lastUpdated: new Date().toISOString()
+      }));
+      return;
+    }
     if (!canUseRecord(access, existing)) throw new Error("You can only update deals for your assigned team/rep.");
     // Editing the full deal is allowed, but the manager comment stays locked
     // unless it was explicitly unlocked with the local password.
