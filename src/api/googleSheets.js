@@ -36,7 +36,9 @@ export const SHEET_COLUMNS = {
 
 const SHEETS_SCOPE = "openid email profile https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email";
 const API_ROOT = "https://sheets.googleapis.com/v4/spreadsheets";
-const AUDIT_ENABLED = import.meta.env.VITE_ENABLE_AUDIT_LOG === "true";
+// Change history is part of the core forecasting workflow. Keep it enabled by
+// default; deployments can still explicitly disable it if required.
+const AUDIT_ENABLED = import.meta.env.VITE_ENABLE_AUDIT_LOG !== "false";
 
 function normalizeRoleValue(role) {
   const normalized = String(role || "").trim().toLowerCase();
@@ -115,7 +117,7 @@ let spreadsheetId = extractSpreadsheetId(import.meta.env.VITE_DEFAULT_SPREADSHEE
 let allDataCache = null;
 const sheetCache = {};
 const sheetHeaders = {};
-const CORE_READ_SHEETS = ["Teams", "Deals", "MonthlyGoals", "UserRoles", "Settings", "Notifications"];
+const CORE_READ_SHEETS = ["Teams", "Deals", "MonthlyGoals", "UserRoles", "Settings", "Notifications", "AuditLog"];
 
 function clearCachedSheetData() {
   allDataCache = null;
@@ -602,7 +604,8 @@ function dataFromSheetCache() {
     goals: (sheetCache.MonthlyGoals || []).map(stripInternal).map(normalizeGoal),
     roles: (sheetCache.UserRoles || []).map(stripInternal).map(normalizeRole),
     settings: Object.fromEntries((sheetCache.Settings || []).map(stripInternal).map((row) => [row.key, row.value])),
-    notifications: (sheetCache.Notifications || []).map(stripInternal)
+    notifications: (sheetCache.Notifications || []).map(stripInternal),
+    auditLog: (sheetCache.AuditLog || []).map(stripInternal)
   };
 }
 
@@ -915,14 +918,18 @@ export async function upsertRow(sheetName, row, actionLabel) {
   }
   const [confirmed] = await confirmPersistedRows(sheetName, [next]);
   allDataCache = dataFromSheetCache();
-  await auditBestEffort(actionLabel || (index >= 0 ? `${sheetName} updated` : `${sheetName} created`), sheetName, next.id, next);
+  const confirmedClean = stripInternal(confirmed);
+  const auditDetails = index >= 0 ? { ...confirmedClean, _previous: stripInternal(rows[index]) } : confirmedClean;
+  await auditBestEffort(actionLabel || (index >= 0 ? `${sheetName} updated` : `${sheetName} created`), sheetName, next.id, auditDetails);
   return stripInternal(confirmed);
 }
 
 export async function deleteRow(sheetName, id, actionLabel) {
   const rows = await readSheet(sheetName);
   const index = rows.findIndex((row) => row.id === id);
+  let deletedRow = {};
   if (index >= 0) {
+    deletedRow = stripInternal(rows[index]);
     const rowNumber = rows[index].__rowNumber || index + 2;
     const clearRange = encodeURIComponent(`${sheetName}!A${rowNumber}:Z${rowNumber}`);
     await sheetsFetch(`/values/${clearRange}:clear`, { method: "POST", body: JSON.stringify({}) });
@@ -932,7 +939,7 @@ export async function deleteRow(sheetName, id, actionLabel) {
     );
     allDataCache = dataFromSheetCache();
   }
-  await audit(actionLabel || `${sheetName} deleted`, sheetName, id, {});
+  await audit(actionLabel || `${sheetName} deleted`, sheetName, id, deletedRow);
 }
 
 export async function upsertRows(sheetName, incomingRows, keyFn, actionLabel) {
@@ -942,6 +949,8 @@ export async function upsertRows(sheetName, incomingRows, keyFn, actionLabel) {
   const updates = [];
   const appends = [];
   const writtenRows = [];
+  const writtenKinds = [];
+  const writtenPrevious = [];
   const writeColumns = writeColumnsForSheet(sheetName);
   let added = 0;
   let updated = 0;
@@ -965,6 +974,8 @@ export async function upsertRows(sheetName, incomingRows, keyFn, actionLabel) {
         values: [objectToValues(merged, writeColumns)]
       });
       writtenRows.push(merged);
+      writtenKinds.push("updated");
+      writtenPrevious.push(stripInternal(rows[existingIndex]));
       updated += 1;
     } else {
       const next = { ...row, id: row.id || createId(sheetName.toLowerCase()), createdAt: row.createdAt || timestamp, updatedAt: timestamp };
@@ -972,6 +983,8 @@ export async function upsertRows(sheetName, incomingRows, keyFn, actionLabel) {
       nextRows.push(next);
       appends.push(next);
       writtenRows.push(next);
+      writtenKinds.push("created");
+      writtenPrevious.push(null);
       added += 1;
     }
   });
@@ -987,7 +1000,27 @@ export async function upsertRows(sheetName, incomingRows, keyFn, actionLabel) {
     allDataCache = dataFromSheetCache();
   }
   const confirmedRows = await confirmPersistedRows(sheetName, writtenRows);
-  await auditBestEffort(actionLabel || `${sheetName} bulk upserted`, sheetName, "bulk", { added, updated });
+  if (sheetName === "Deals" && AUDIT_ENABLED) {
+    try {
+      const auditTimestamp = nowIso();
+      await appendSheet(
+        "AuditLog",
+        confirmedRows.map((row, index) => ({
+          id: createId("audit"),
+          timestamp: auditTimestamp,
+          userEmail: signedInEmail,
+          action: writtenKinds[index] === "created" ? "Deal created" : "Deal updated",
+          entityType: sheetName,
+          entityId: row.id,
+          detailsJson: JSON.stringify(writtenPrevious[index] ? { ...stripInternal(row), _previous: writtenPrevious[index] } : stripInternal(row))
+        }))
+      );
+    } catch (error) {
+      console.warn("Deal change history write failed after the bulk save succeeded.", error);
+    }
+  } else {
+    await auditBestEffort(actionLabel || `${sheetName} bulk upserted`, sheetName, "bulk", { added, updated });
+  }
   return { added, updated, rows: confirmedRows.map(stripInternal) };
 }
 

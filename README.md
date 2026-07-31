@@ -21,6 +21,11 @@ The app will create/use these tabs:
 - `Settings`
 - `AuditLog`
 
+The app records deal changes in `AuditLog` by default so the **What Changed**
+tab can show new deals, forecast changes, moved deals, wins, losses, and
+deletions. Set `VITE_ENABLE_AUDIT_LOG=false` only if change history must be
+disabled.
+
 Share the spreadsheet with every Google account that should use the app.
 
 The first signed-in Google account is automatically added to `UserRoles` as a `Manager` when the sheet is empty. After that, access is controlled by rows in `UserRoles`.
@@ -33,6 +38,8 @@ Create a `.env` file for local development:
 VITE_GOOGLE_CLIENT_ID=your-google-oauth-client-id.apps.googleusercontent.com
 VITE_DEFAULT_SPREADSHEET_ID=your-google-spreadsheet-id
 VITE_MANAGER_COMMENT_UNLOCK_CODE=your-manager-comment-unlock-code
+# Optional: set to false only when deal change history must be disabled
+VITE_ENABLE_AUDIT_LOG=true
 ```
 
 The Google OAuth client must allow the deployed site origin, for example:
@@ -95,6 +102,13 @@ Set these hosting environment variables:
 ## Authentication
 
 Users sign in with Google OAuth. The signed-in Google account must have access to the spreadsheet and must be listed in `UserRoles` after first setup. Google access tokens are stored in browser storage until sign-out or expiry, so use HTTPS hosting and sign out on shared devices.
+
+## Appearance Themes
+
+The appearance picker includes 18 token-based themes grouped as Core,
+Professional, Colour, and Accessibility. Each theme coordinates application
+surfaces, typography, borders, actions, status colours, focus states, and chart
+colours. The selection is stored in the browser for the next visit.
 
 ## CSV Import / Export
 

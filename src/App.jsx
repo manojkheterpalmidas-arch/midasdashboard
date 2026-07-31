@@ -70,14 +70,28 @@ const CHART_AMBER = "var(--chart-amber)";
 const CHART_RED = "var(--chart-red)";
 const CHART_MUTED = "var(--chart-muted)";
 const THEMES = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-  { value: "forest", label: "Forest" },
-  { value: "sunrise", label: "Sunrise" },
-  { value: "graphite", label: "Graphite" }
+  { value: "light", label: "Classic Light", group: "Core", mode: "light", canvas: "#eef2f7", swatches: ["#0f2742", "#1d4f8f", "#16825d"] },
+  { value: "dark", label: "Classic Dark", group: "Core", mode: "dark", canvas: "#0d1117", swatches: ["#2563eb", "#60a5fa", "#34d399"] },
+  { value: "graphite", label: "Graphite", group: "Core", mode: "dark", canvas: "#111318", swatches: ["#6d5bd0", "#38bdf8", "#22c55e"] },
+  { value: "crm-blue", label: "CRM Blue", group: "Professional", mode: "light", canvas: "#f3f7fb", swatches: ["#032d60", "#0176d3", "#2e844a"] },
+  { value: "atlassian-indigo", label: "Indigo Workspace", group: "Professional", mode: "light", canvas: "#f4f5f7", swatches: ["#172b4d", "#0c66e4", "#6554c0"] },
+  { value: "slate-professional", label: "Slate Professional", group: "Professional", mode: "light", canvas: "#f1f5f9", swatches: ["#1e293b", "#475569", "#0f766e"] },
+  { value: "github-dimmed", label: "Dimmed Workspace", group: "Professional", mode: "dark", canvas: "#22272e", swatches: ["#539bf5", "#57ab5a", "#c69026"] },
+  { value: "linear-midnight", label: "Midnight SaaS", group: "Professional", mode: "dark", canvas: "#0f0f17", swatches: ["#7c6df2", "#55b8ff", "#45d483"] },
+  { value: "forest", label: "Forest", group: "Colour", mode: "light", canvas: "#eef7f1", swatches: ["#14532d", "#256d85", "#16825d"] },
+  { value: "sunrise", label: "Sunrise", group: "Colour", mode: "light", canvas: "#fff7ed", swatches: ["#7c2d12", "#b45309", "#15803d"] },
+  { value: "ocean-teal", label: "Ocean Teal", group: "Colour", mode: "light", canvas: "#eef9fb", swatches: ["#134e5e", "#087f8c", "#0f9d7a"] },
+  { value: "emerald", label: "Emerald", group: "Colour", mode: "light", canvas: "#effaf5", swatches: ["#064e3b", "#047857", "#10b981"] },
+  { value: "royal-purple", label: "Royal Purple", group: "Colour", mode: "light", canvas: "#f7f4ff", swatches: ["#3b1764", "#6d28d9", "#a855f7"] },
+  { value: "rose-quartz", label: "Rose Quartz", group: "Colour", mode: "light", canvas: "#fff5f7", swatches: ["#831843", "#be185d", "#7c3aed"] },
+  { value: "sandstone", label: "Sandstone", group: "Colour", mode: "light", canvas: "#f8f5ef", swatches: ["#4a3728", "#9a5b2e", "#2f766d"] },
+  { value: "nord-frost", label: "Nord Frost", group: "Colour", mode: "light", canvas: "#e9eef5", swatches: ["#2e3440", "#5e81ac", "#88c0d0"] },
+  { value: "high-contrast-light", label: "High Contrast Light", group: "Accessibility", mode: "light", canvas: "#ffffff", swatches: ["#000000", "#0047ab", "#007a3d"] },
+  { value: "high-contrast-dark", label: "High Contrast Dark", group: "Accessibility", mode: "dark", canvas: "#05070a", swatches: ["#ffffff", "#6cb6ff", "#56d364"] }
 ];
+const THEME_GROUPS = ["Core", "Professional", "Colour", "Accessibility"];
 const RADIAN = Math.PI / 180;
-const TABS = ["Dashboard", "Teams", "Deals", "Monthly Goals", "Team View", "Team Performance", "Individual Performance", "Summary"];
+const TABS = ["Dashboard", "What Changed", "Teams", "Deals", "Monthly Goals", "Team View", "Team Performance", "Individual Performance", "Summary"];
 const PERIOD_TYPES = ["Monthly", "Quarterly", "Half-Yearly"];
 const QUARTERS = [
   { value: 1, label: "Q1", months: [1, 2, 3] },
@@ -485,6 +499,7 @@ function emptyData() {
     goals: [],
     roles: [],
     notifications: [],
+    auditLog: [],
     settings: {},
     preparedBy: "Vito Lee",
     lastUpdated: ""
@@ -690,6 +705,16 @@ function canUseRecord(access, record) {
   return canUseTeam(access, record.teamId) && canUseRep(access, record.repName);
 }
 
+function auditDetails(entry) {
+  if (entry?.details && typeof entry.details === "object") return entry.details;
+  try {
+    const parsed = JSON.parse(entry?.detailsJson || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function scopedDataForAccess(data, access) {
   if (isManagerAccess(access)) return data;
   const teams = data.teams
@@ -698,11 +723,21 @@ function scopedDataForAccess(data, access) {
       ...team,
       reps: access.role === "Team Member" && access.repName ? team.reps.filter((rep) => rep === access.repName) : team.reps
     }));
+  const auditAccessByEntity = new Map();
+  const auditLog = [...(data.auditLog || [])]
+    .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0))
+    .filter((entry) => {
+      if (entry.entityType !== "Deals") return false;
+      const details = auditDetails(entry);
+      if (details.teamId) auditAccessByEntity.set(entry.entityId, canUseRecord(access, details));
+      return auditAccessByEntity.get(entry.entityId) === true;
+    });
   return {
     ...data,
     teams,
     deals: data.deals.filter((deal) => canUseRecord(access, deal)),
     goals: data.goals.filter((goal) => canUseRecord(access, goal)),
+    auditLog,
     roles: []
   };
 }
@@ -1003,6 +1038,71 @@ function TopNav({ activeTab, setActiveTab, tabs = TABS }) {
   );
 }
 
+function ThemePicker({ theme, setTheme }) {
+  const [open, setOpen] = useState(false);
+  const pickerRef = useRef(null);
+  const active = THEMES.find((item) => item.value === theme) || THEMES[0];
+
+  useEffect(() => {
+    function closeOnOutsideClick(event) {
+      if (pickerRef.current && !pickerRef.current.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, []);
+
+  return (
+    <div ref={pickerRef} className="relative">
+      <label className="label">Theme</label>
+      <button
+        type="button"
+        className="field flex items-center justify-between gap-3 py-2 text-left"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="flex min-w-0 items-center gap-3">
+          <span className="flex shrink-0 -space-x-1">
+            {active.swatches.map((color) => <span key={color} className="h-4 w-4 rounded-full border-2 border-white shadow-sm" style={{ backgroundColor: color }} />)}
+          </span>
+          <span className="truncate font-bold">{active.label}</span>
+        </span>
+        <span className="text-xs text-slate-500">{open ? "▲" : "▼"}</span>
+      </button>
+      {open ? (
+        <div className="absolute left-0 top-full z-[70] mt-2 max-h-[28rem] w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-midas-line bg-white p-3 shadow-2xl sm:w-[23rem]" role="listbox" aria-label="Application theme">
+          {THEME_GROUPS.map((group) => (
+            <div key={group} className="mb-3 last:mb-0">
+              <div className="mb-1.5 px-1 text-[11px] font-extrabold uppercase tracking-wider text-slate-500">{group}</div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {THEMES.filter((item) => item.group === group).map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    role="option"
+                    aria-selected={item.value === theme}
+                    className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs font-bold transition ${item.value === theme ? "border-midas-blue bg-blue-50 text-midas-blue" : "border-midas-line bg-white text-midas-ink hover:bg-slate-50"}`}
+                    onClick={() => {
+                      setTheme(item.value);
+                      setOpen(false);
+                    }}
+                  >
+                    <span className="flex shrink-0 -space-x-1">
+                      {item.swatches.map((color) => <span key={color} className="h-3.5 w-3.5 rounded-full border border-white shadow-sm" style={{ backgroundColor: color }} />)}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    {item.value === theme ? <span aria-hidden="true">✓</span> : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Header({
   activeTab,
   setActiveTab,
@@ -1055,7 +1155,7 @@ function Header({
   return (
     <header className="border-b border-midas-line bg-slate-50 px-4 py-4 lg:px-6">
       <div className="grid gap-3 lg:grid-cols-[minmax(300px,0.95fr)_minmax(250px,0.62fr)_minmax(360px,1.08fr)] xl:gap-4">
-        <div className="panel flex min-h-44 flex-col justify-between overflow-hidden border-l-4 border-l-midas-navy p-4 xl:p-5">
+        <div className="panel relative z-30 flex min-h-44 flex-col justify-between overflow-visible border-l-4 border-l-midas-navy p-4 xl:p-5">
           <div>
             <div className="mb-2 inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-midas-blue">
               MIDAS Internal
@@ -1075,14 +1175,7 @@ function Header({
             </div>
           )}
           <div className="mt-3 w-full sm:w-72">
-            <label className="label">Theme</label>
-            <select className="field py-1.5" value={theme} onChange={(event) => setTheme(event.target.value)}>
-              {THEMES.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
+            <ThemePicker theme={theme} setTheme={setTheme} />
           </div>
         </div>
 
@@ -2545,7 +2638,7 @@ function ChartPanel({ title, children, tall = false }) {
   );
 }
 
-function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear }) {
+function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, selectedQuarter, selectedHalfYear, onSelectTeam }) {
   const [goalType, setGoalType] = useStoredState("midas-dashboard-goal-type", "Responsibility Goal");
   const [currencyView, setCurrencyView] = useStoredState("midas-dashboard-currency-view", "KRW");
   const { teams, deals, goals } = data;
@@ -2748,7 +2841,19 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
           <DataTable
             rows={[...teamRows].sort((a, b) => a.maxCoverage - b.maxCoverage)}
             columns={[
-              { header: "Team", render: (row) => row.team },
+              {
+                header: "Team",
+                render: (row) => (
+                  <button
+                    type="button"
+                    className="font-bold text-midas-blue underline decoration-blue-300 underline-offset-2 hover:text-blue-700"
+                    onClick={() => onSelectTeam?.(row.id)}
+                    title={`Open ${row.team} in Team View`}
+                  >
+                    {row.team}
+                  </button>
+                )
+              },
               { header: "Lead", render: (row) => row.lead },
               { header: `Target ${displayCurrency}`, render: (row) => formatMoney(row.target, displayCurrency) },
               { header: `Achievement + Min ${displayCurrency}`, render: (row) => formatMoney(row.achievementMin, displayCurrency) },
@@ -2765,6 +2870,153 @@ function Dashboard({ data, selectedYear, selectedMonth, selectedPeriodType, sele
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+function WhatChangedPage({ data }) {
+  const [days, setDays] = useStoredState("midas-what-changed-days", "7");
+  const [teamId, setTeamId] = useStoredState("midas-what-changed-team", "All");
+  const [changeType, setChangeType] = useStoredState("midas-what-changed-type", "All");
+  const teamsById = new Map(data.teams.map((team) => [team.id, team]));
+  const cutoff = Date.now() - num(days) * 24 * 60 * 60 * 1000;
+  const previousByEntity = new Map();
+  const allEvents = [];
+
+  function dealCurrency(deal) {
+    return teamsById.get(deal?.teamId)?.currency || "GBP";
+  }
+
+  function dealPeriod(deal) {
+    return deal?.month && deal?.year ? `${monthName(deal.month)} ${deal.year}` : "Not set";
+  }
+
+  function describeCreated(deal) {
+    const parts = [deal.product, deal.category].filter(Boolean);
+    if (num(deal.maxAmount)) parts.push(`Max ${formatMoney(deal.maxAmount, dealCurrency(deal))}`);
+    return parts.length ? parts.join(" • ") : "New deal added";
+  }
+
+  function compareDeals(previous, current) {
+    if (!previous || !Object.keys(previous).length) return [];
+    const changes = [];
+    if (String(previous.status || "") !== String(current.status || "")) changes.push(`Stage: ${previous.status || "Not set"} → ${current.status || "Not set"}`);
+    if (num(previous.year) !== num(current.year) || num(previous.month) !== num(current.month)) changes.push(`Period: ${dealPeriod(previous)} → ${dealPeriod(current)}`);
+    if (num(previous.minAmount) !== num(current.minAmount)) changes.push(`Min: ${formatMoney(previous.minAmount, dealCurrency(current))} → ${formatMoney(current.minAmount, dealCurrency(current))}`);
+    if (num(previous.maxAmount) !== num(current.maxAmount)) changes.push(`Max: ${formatMoney(previous.maxAmount, dealCurrency(current))} → ${formatMoney(current.maxAmount, dealCurrency(current))}`);
+    if (num(previous.closedAmount) !== num(current.closedAmount) && isClosedStatus(current.status)) changes.push(`Closed: ${formatMoney(previous.closedAmount, dealCurrency(current))} → ${formatMoney(current.closedAmount, dealCurrency(current))}`);
+    if (num(previous.probability) !== num(current.probability)) changes.push(`Probability: ${num(previous.probability)}% → ${num(current.probability)}%`);
+    if (String(previous.temperature || "") !== String(current.temperature || "")) changes.push(`Temperature: ${previous.temperature || "Not set"} → ${current.temperature || "Not set"}`);
+    if (String(previous.expectedCloseDate || "") !== String(current.expectedCloseDate || "")) changes.push(`Expected close: ${previous.expectedCloseDate || "Not set"} → ${current.expectedCloseDate || "Not set"}`);
+    if (String(previous.category || "") !== String(current.category || "")) changes.push(`Category: ${previous.category || "Not set"} → ${current.category || "Not set"}`);
+    if (String(previous.repName || "") !== String(current.repName || "")) changes.push(`Rep: ${previous.repName || "Not set"} → ${current.repName || "Not set"}`);
+    if (String(previous.nextAction || "") !== String(current.nextAction || "")) changes.push("Next action updated");
+    if (String(previous.repComment || previous.comments || "") !== String(current.repComment || current.comments || "")) changes.push("Rep comment updated");
+    if (String(previous.managerComment || "") !== String(current.managerComment || "")) changes.push("Manager comment updated");
+    return changes;
+  }
+
+  [...(data.auditLog || [])]
+    .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0))
+    .forEach((entry) => {
+      if (entry.entityType !== "Deals") return;
+      const timestamp = new Date(entry.timestamp || 0);
+      if (Number.isNaN(timestamp.getTime())) return;
+      const action = String(entry.action || "").toLowerCase();
+      const rawDetails = auditDetails(entry);
+      const embeddedPrevious = rawDetails._previous && typeof rawDetails._previous === "object" ? rawDetails._previous : null;
+      const { _previous, ...details } = rawDetails;
+      const previous = previousByEntity.get(entry.entityId) || embeddedPrevious;
+      let deal = Object.keys(details).length ? details : previous || {};
+      let type = "Updated";
+      let detail = "Deal details updated";
+
+      if (entry.entityId === "bulk") {
+        type = "Bulk";
+        detail = `${num(details.added)} added, ${num(details.updated)} updated`;
+        deal = {};
+      } else if (action.includes("deleted")) {
+        type = "Deleted";
+        detail = "Deal deleted";
+        previousByEntity.delete(entry.entityId);
+      } else if (action.includes("created")) {
+        type = "Created";
+        detail = describeCreated(details);
+        previousByEntity.set(entry.entityId, details);
+      } else {
+        const changes = compareDeals(previous, details);
+        const moved = previous && (num(previous.year) !== num(details.year) || num(previous.month) !== num(details.month));
+        const valueChanged = previous && (num(previous.minAmount) !== num(details.minAmount) || num(previous.maxAmount) !== num(details.maxAmount));
+        const statusChanged = previous && String(previous.status || "") !== String(details.status || "");
+        if (statusChanged && isClosedStatus(details.status)) type = "Won";
+        else if (statusChanged && details.status === "Lost") type = "Lost";
+        else if (moved) type = "Moved";
+        else if (valueChanged) type = "Value";
+        detail = changes.length ? changes.join(" • ") : detail;
+        if (Object.keys(details).length) previousByEntity.set(entry.entityId, details);
+      }
+
+      if (timestamp.getTime() < cutoff) return;
+      if (teamId !== "All" && deal.teamId !== teamId) return;
+      allEvents.push({ id: entry.id || `${entry.entityId}-${entry.timestamp}`, timestamp: entry.timestamp, userEmail: entry.userEmail || "", type, detail, deal });
+    });
+
+  allEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  const events = changeType === "All" ? allEvents : allEvents.filter((event) => event.type === changeType);
+  const counts = Object.fromEntries(["Created", "Won", "Lost", "Moved", "Value"].map((type) => [type, allEvents.filter((event) => event.type === type).length]));
+  const typeTone = { Created: "blue", Won: "green", Lost: "red", Moved: "amber", Value: "purple", Updated: "grey", Deleted: "red", Bulk: "slate" };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="section-title">What Changed</h2>
+          <p className="text-sm text-slate-500">Deal movement and forecast changes recorded in Google Sheets.</p>
+        </div>
+        <div className="grid w-full gap-3 sm:grid-cols-3 md:w-[42rem]">
+          <div>
+            <label className="label">Period</label>
+            <select className="field" value={days} onChange={(event) => setDays(event.target.value)}>
+              <option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="14">Last 14 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Team</label>
+            <select className="field" value={teamId} onChange={(event) => setTeamId(event.target.value)}>
+              <option value="All">All teams</option>
+              {data.teams.map((team) => <option key={team.id} value={team.id}>{team.teamName}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Change type</label>
+            <select className="field" value={changeType} onChange={(event) => setChangeType(event.target.value)}>
+              {["All", "Created", "Won", "Lost", "Moved", "Value", "Updated", "Deleted", "Bulk"].map((type) => <option key={type}>{type}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <KpiCard label="New Deals" value={counts.Created || 0} tone="blue" />
+        <KpiCard label="Won" value={counts.Won || 0} tone="green" />
+        <KpiCard label="Lost" value={counts.Lost || 0} tone="red" />
+        <KpiCard label="Moved Period" value={counts.Moved || 0} tone="amber" />
+        <KpiCard label="Value Changed" value={counts.Value || 0} tone="blue" />
+      </div>
+      <div className="panel">
+        <DataTable
+          rows={events.slice(0, 200)}
+          columns={[
+            { header: "When", render: (row) => new Date(row.timestamp).toLocaleString() },
+            { header: "Change", render: (row) => <Badge tone={typeTone[row.type] || "slate"}>{row.type}</Badge> },
+            { header: "Company", render: (row) => row.deal?.companyName ? <DealHubSpotLink deal={row.deal} /> : "-" },
+            { header: "Team", render: (row) => teamsById.get(row.deal?.teamId)?.teamName || "-" },
+            { header: "Rep", render: (row) => row.deal?.repName || "-" },
+            { header: "What changed", render: (row) => <div className="max-w-3xl whitespace-pre-wrap break-words leading-6">{row.detail}</div> },
+            { header: "Changed by", render: (row) => row.userEmail || "-" }
+          ]}
+        />
+      </div>
+      {!events.length ? <div className="rounded-xl border border-midas-line bg-white p-5 text-sm font-semibold text-slate-500">No matching changes were recorded in this period. Change tracking begins with this version; earlier deal history may not be available.</div> : null}
     </div>
   );
 }
@@ -3643,6 +3895,13 @@ function TeamView({
   selectedPeriodType,
   selectedQuarter,
   selectedHalfYear,
+  onSelectedYearChange,
+  onSelectedMonthChange,
+  onSelectedPeriodTypeChange,
+  onSelectedQuarterChange,
+  onSelectedHalfYearChange,
+  requestedTeamId,
+  onRequestedTeamHandled,
   onUpdateDeal,
   onSaveDeal,
   access,
@@ -3651,16 +3910,29 @@ function TeamView({
   onLockManagerNotes
 }) {
   const [teamId, setTeamId] = useStoredState("midas-team-view-team-id", data.teams[0]?.id || "");
-  const [year, setYear] = useStoredState("midas-team-view-year", selectedYear);
-  const [month, setMonth] = useStoredState("midas-team-view-month", selectedMonth);
-  const [periodType, setPeriodType] = useStoredState("midas-team-view-period-type", selectedPeriodType);
-  const [quarter, setQuarter] = useStoredState("midas-team-view-quarter", selectedQuarter);
-  const [halfYear, setHalfYear] = useStoredState("midas-team-view-half-year", selectedHalfYear);
   const [goalType, setGoalType] = useStoredState("midas-team-view-goal-type", "Responsibility Goal");
   const [repName, setRepName] = useStoredState("midas-team-view-rep", "All reps");
   const [currencyView, setCurrencyView] = useStoredState("midas-team-view-currency-view", "Local");
   const [dealTableView, setDealTableView] = useStoredState("midas-team-view-deal-table-view", "Open only");
   const [managerPassword, setManagerPassword] = useState("");
+  const year = selectedYear;
+  const month = selectedMonth;
+  const periodType = selectedPeriodType;
+  const quarter = selectedQuarter;
+  const halfYear = selectedHalfYear;
+  const setYear = (value) => onSelectedYearChange?.(num(value));
+  const setMonth = (value) => onSelectedMonthChange?.(num(value));
+  const setPeriodType = (value) => onSelectedPeriodTypeChange?.(value);
+  const setQuarter = (value) => onSelectedQuarterChange?.(num(value));
+  const setHalfYear = (value) => onSelectedHalfYearChange?.(num(value));
+
+  useEffect(() => {
+    if (!requestedTeamId || !data.teams.some((item) => item.id === requestedTeamId)) return;
+    setTeamId(requestedTeamId);
+    setRepName("All reps");
+    onRequestedTeamHandled?.();
+  }, [requestedTeamId]);
+
   const team = getTeam(data.teams, teamId) || data.teams[0];
   const rates = ratesFromSettings(data.settings, data.teams);
   const teamCurrency = team?.currency || "GBP";
@@ -4752,14 +5024,16 @@ function SummaryPage({ data, selectedYear, selectedMonth, selectedPeriodType, se
 }
 
 export default function App() {
+  const today = new Date();
   const [data, setData] = useState(emptyData);
   const [activeTab, setActiveTab] = useState("Dashboard");
+  const [requestedTeamId, setRequestedTeamId] = useState("");
   const [theme, setTheme] = useStoredState("midas-theme", "light");
-  const [selectedYear, setSelectedYear] = useState(2026);
-  const [selectedMonth, setSelectedMonth] = useState(6);
+  const [selectedYear, setSelectedYear] = useState(() => today.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(() => today.getMonth() + 1);
   const [selectedPeriodType, setSelectedPeriodType] = useState("Monthly");
-  const [selectedQuarter, setSelectedQuarter] = useState(2);
-  const [selectedHalfYear, setSelectedHalfYear] = useState(1);
+  const [selectedQuarter, setSelectedQuarter] = useState(() => Math.floor(today.getMonth() / 3) + 1);
+  const [selectedHalfYear, setSelectedHalfYear] = useState(() => (today.getMonth() < 6 ? 1 : 2));
   const [authChecked, setAuthChecked] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
   const [appError, setAppError] = useState("");
@@ -4780,11 +5054,13 @@ export default function App() {
     () => sessionStorage.getItem(MANAGER_COMMENT_UNLOCK_KEY) === "true"
   );
   const activeTheme = THEMES.some((item) => item.value === theme) ? theme : "light";
+  const activeThemeDefinition = THEMES.find((item) => item.value === activeTheme) || THEMES[0];
 
   useEffect(() => {
     document.documentElement.dataset.theme = activeTheme;
-    document.documentElement.style.colorScheme = activeTheme === "light" || activeTheme === "sunrise" || activeTheme === "forest" ? "light" : "dark";
-  }, [activeTheme]);
+    document.documentElement.style.colorScheme = activeThemeDefinition.mode;
+    document.documentElement.style.backgroundColor = activeThemeDefinition.canvas;
+  }, [activeTheme, activeThemeDefinition.mode, activeThemeDefinition.canvas]);
 
   useEffect(() => {
     function handleConnectionChange(event) {
@@ -4886,6 +5162,7 @@ export default function App() {
         deals: nextData.deals,
         goals: nextData.goals,
         roles: nextData.roles || [],
+        auditLog: nextData.auditLog || [],
         settings: nextData.settings,
         preparedBy: nextData.settings?.preparedFor || "Vito Lee",
         lastUpdated: new Date().toISOString()
@@ -5159,6 +5436,11 @@ export default function App() {
     if (!availableTabs.includes(activeTab)) setActiveTab(availableTabs[0] || "Dashboard");
   }, [activeTab, availableTabs.join("|")]);
 
+  function openTeamView(teamId) {
+    setRequestedTeamId(teamId);
+    setActiveTab("Team View");
+  }
+
   const content = {
     Dashboard: (
       <Dashboard
@@ -5168,8 +5450,10 @@ export default function App() {
         selectedPeriodType={selectedPeriodType}
         selectedQuarter={selectedQuarter}
         selectedHalfYear={selectedHalfYear}
+        onSelectTeam={openTeamView}
       />
     ),
+    "What Changed": <WhatChangedPage data={scopedData} />,
     Teams: <TeamsPage data={data} refreshData={refreshData} connectionStatus={sheetsConnection} />,
     Deals: <DealsPage data={scopedData} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} access={access} connectionStatus={sheetsConnection} />,
     "Monthly Goals": <GoalsPage data={data} refreshData={refreshData} selectedYear={selectedYear} selectedMonth={selectedMonth} />,
@@ -5181,6 +5465,13 @@ export default function App() {
         selectedPeriodType={selectedPeriodType}
         selectedQuarter={selectedQuarter}
         selectedHalfYear={selectedHalfYear}
+        onSelectedYearChange={setSelectedYear}
+        onSelectedMonthChange={setSelectedMonth}
+        onSelectedPeriodTypeChange={setSelectedPeriodType}
+        onSelectedQuarterChange={setSelectedQuarter}
+        onSelectedHalfYearChange={setSelectedHalfYear}
+        requestedTeamId={requestedTeamId}
+        onRequestedTeamHandled={() => setRequestedTeamId("")}
         onUpdateDeal={updateDealFromTeamView}
         onSaveDeal={saveDealFromTeamView}
         access={access}
