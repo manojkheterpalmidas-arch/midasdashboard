@@ -742,9 +742,15 @@ function scopedDataForAccess(data, access) {
   };
 }
 
-function isPerformanceTeam(team) {
-  const name = String(team.teamName || "").trim().toLowerCase();
-  return name === "uk" || name === "uk team" || name === "ee1" || name === "ee2" || name === "france" || name.includes("france");
+function performanceTeams(teams = []) {
+  return teams.filter((team) => team && String(team.teamName || "").trim());
+}
+
+function repNamesForScope(records = [], scope, teamId) {
+  return records
+    .filter((record) => (teamId ? record.teamId === teamId : true) && matchesScope(record, scope))
+    .map((record) => String(record.repName || "").trim())
+    .filter((name) => name && name !== "All reps");
 }
 
 function makePieLabel(currency = "KRW") {
@@ -4356,7 +4362,7 @@ function TeamView({
 
 function IndividualPerformancePage({ data, selectedYear, selectedHalfYear }) {
   const [goalType, setGoalType] = useStoredState("midas-individual-performance-goal-type", "Responsibility Goal");
-  const includedTeams = data.teams.filter(isPerformanceTeam);
+  const includedTeams = performanceTeams(data.teams);
   const teamIds = includedTeams.map((team) => team.id);
   const [currencyView, setCurrencyView] = useStoredState("midas-individual-performance-currency-view", "EUR");
   const rates = ratesFromSettings(data.settings, data.teams);
@@ -4375,17 +4381,27 @@ function IndividualPerformancePage({ data, selectedYear, selectedHalfYear }) {
     halfYear,
     teamIds
   });
-  const reps = Array.from(
-    includedTeams.reduce((map, team) => {
-      (team.reps || []).forEach((rep) => {
-        if (!rep) return;
-        const current = map.get(rep) || { repName: rep, teams: [] };
-        current.teams.push(team.teamName);
-        map.set(rep, current);
-      });
-      return map;
-    }, new Map()).values()
-  );
+  const repMap = includedTeams.reduce((map, team) => {
+    (team.reps || []).forEach((rep) => {
+      const name = String(rep || "").trim();
+      if (!name) return;
+      const current = map.get(name) || { repName: name, teams: [] };
+      if (!current.teams.includes(team.teamName)) current.teams.push(team.teamName);
+      map.set(name, current);
+    });
+    return map;
+  }, new Map());
+
+  // Reps can appear on deals or goals without being listed on the team record - include them too.
+  includedTeams.forEach((team) => {
+    repNamesForScope([...data.deals, ...data.goals], baseScope, team.id).forEach((name) => {
+      const current = repMap.get(name) || { repName: name, teams: [] };
+      if (!current.teams.includes(team.teamName)) current.teams.push(team.teamName);
+      repMap.set(name, current);
+    });
+  });
+
+  const reps = Array.from(repMap.values());
 
   const rows = reps
     .map((rep) => {
@@ -4416,7 +4432,7 @@ function IndividualPerformancePage({ data, selectedYear, selectedHalfYear }) {
         <div>
           <h2 className="section-title">Individual Performance</h2>
           <p className="text-sm text-slate-500">
-            Big-screen rep ranking for {label}, covering UK, EE1, EE2, and France only. Values shown in {displayCurrency} using central exchange rates.
+            Big-screen rep ranking for {label}, covering every team. Values shown in {displayCurrency} using central exchange rates.
           </p>
         </div>
         <div className="flex w-full flex-col gap-3 sm:flex-row md:w-auto">
@@ -4493,7 +4509,7 @@ function IndividualPerformancePage({ data, selectedYear, selectedHalfYear }) {
       </div>
       {!rows.length ? (
         <div className="panel p-5 text-sm font-semibold text-slate-500">
-          No reps found in UK, EE1, EE2, or France teams.
+          No reps found for the current half-year view.
         </div>
       ) : null}
     </div>
@@ -4502,7 +4518,7 @@ function IndividualPerformancePage({ data, selectedYear, selectedHalfYear }) {
 
 function TeamPerformancePage({ data, selectedYear, selectedHalfYear }) {
   const [goalType, setGoalType] = useStoredState("midas-team-performance-goal-type", "Responsibility Goal");
-  const includedTeams = data.teams.filter(isPerformanceTeam);
+  const includedTeams = performanceTeams(data.teams);
   const [currencyView, setCurrencyView] = useStoredState("midas-team-performance-currency-view", "EUR");
   const rates = ratesFromSettings(data.settings, data.teams);
   const displayCurrency = currencyView;
@@ -4532,7 +4548,11 @@ function TeamPerformancePage({ data, selectedYear, selectedHalfYear }) {
       }), displayCurrency, rates);
       const achievedPercent = metrics.target > 0 ? metrics.closed / metrics.target : 0;
       const remaining = Math.max(metrics.target - metrics.closed, 0);
-      const reps = (team.reps || [])
+      const repNames = Array.from(new Set([
+        ...(team.reps || []).map((rep) => String(rep || "").trim()).filter(Boolean),
+        ...repNamesForScope([...data.deals, ...data.goals], baseScope, team.id)
+      ]));
+      const reps = repNames
         .map((repName) => {
           const repMetrics = krwToCurrency(calculateMetrics({
             teams: data.teams,
@@ -4570,7 +4590,7 @@ function TeamPerformancePage({ data, selectedYear, selectedHalfYear }) {
         <div>
           <h2 className="section-title">Team Performance</h2>
           <p className="text-sm text-slate-500">
-            Big-screen team ranking for {label}, covering UK, EE1, EE2, and France only. Values shown in {displayCurrency} using central exchange rates.
+            Big-screen team ranking for {label}, covering every team. Values shown in {displayCurrency} using central exchange rates.
           </p>
         </div>
         <div className="flex w-full flex-col gap-3 sm:flex-row md:w-auto">
@@ -4673,7 +4693,7 @@ function TeamPerformancePage({ data, selectedYear, selectedHalfYear }) {
         })}
       </div>
       {!rows.length ? (
-        <div className="panel p-5 text-sm font-semibold text-slate-500">No UK, EE1, EE2, or France teams found for the current half-year view.</div>
+        <div className="panel p-5 text-sm font-semibold text-slate-500">No teams found for the current half-year view.</div>
       ) : null}
     </div>
   );
