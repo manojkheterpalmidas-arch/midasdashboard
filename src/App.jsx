@@ -742,8 +742,20 @@ function scopedDataForAccess(data, access) {
   };
 }
 
+// Team leads whose teams are kept off the Team and Individual Performance rankings.
+const EXCLUDED_TEAM_LEADS = ["vito", "jaeseok", "jaesyeok"];
+
+function normalizeName(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function isExcludedTeamLead(teamLead) {
+  const name = normalizeName(teamLead);
+  return Boolean(name) && EXCLUDED_TEAM_LEADS.some((lead) => name.includes(lead));
+}
+
 function performanceTeams(teams = []) {
-  return teams.filter((team) => team && String(team.teamName || "").trim());
+  return teams.filter((team) => team && String(team.teamName || "").trim() && !isExcludedTeamLead(team.teamLead));
 }
 
 function repNamesForScope(records = [], scope, teamId) {
@@ -4432,7 +4444,7 @@ function IndividualPerformancePage({ data, selectedYear, selectedHalfYear }) {
         <div>
           <h2 className="section-title">Individual Performance</h2>
           <p className="text-sm text-slate-500">
-            Big-screen rep ranking for {label}, covering every team. Values shown in {displayCurrency} using central exchange rates.
+            Big-screen rep ranking for {label}, excluding teams led by Vito or Jae Seok Yang. Values shown in {displayCurrency} using central exchange rates.
           </p>
         </div>
         <div className="flex w-full flex-col gap-3 sm:flex-row md:w-auto">
@@ -4590,7 +4602,7 @@ function TeamPerformancePage({ data, selectedYear, selectedHalfYear }) {
         <div>
           <h2 className="section-title">Team Performance</h2>
           <p className="text-sm text-slate-500">
-            Big-screen team ranking for {label}, covering every team. Values shown in {displayCurrency} using central exchange rates.
+            Big-screen team ranking for {label}, excluding teams led by Vito or Jae Seok Yang. Values shown in {displayCurrency} using central exchange rates.
           </p>
         </div>
         <div className="flex w-full flex-col gap-3 sm:flex-row md:w-auto">
